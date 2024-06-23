@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 
 public extension View {
+    @MainActor
     func dialog(
         isVisible: Bool,
         title: String,
@@ -13,6 +14,7 @@ public extension View {
     }
 }
 
+@MainActor
 struct DialogModifier: ViewModifier {
     @Environment(\.dismiss) private var dismiss
     let isVisible: Bool
@@ -22,9 +24,9 @@ struct DialogModifier: ViewModifier {
     let onSubmit: () -> Void
     
     func body(content: Content) -> some View {
-        NavigationStack {
+        navigationContainer {
             content
-                .navigationTitle(title)
+                .titled(title)
                 .onChange(of: isVisible, { wasVisible, nowVisible in
                     if wasVisible && !nowVisible {
                         dismiss()
@@ -44,5 +46,36 @@ struct DialogModifier: ViewModifier {
                     }
                 }
         }
+    }
+}
+
+private extension DialogModifier {
+    @ViewBuilder
+    func navigationContainer<O: View>(@ViewBuilder modifiers: () -> O) -> some View {
+        #if os(macOS)
+        modifiers()
+        #else
+        NavigationStack {
+            modifiers()
+        }
+        #endif
+    }
+}
+
+private extension View {
+    func titled(_ title: String) -> some View {
+        #if os(macOS)
+        VStack(alignment: .leading) {
+            Text(title)
+                .font(.largeTitle)
+                .padding()
+            
+            Divider()
+            
+            self
+        }
+        #else
+        navigationTitle(title)
+        #endif
     }
 }
