@@ -35,7 +35,9 @@ public struct TextPickerField<Value, PickerValue: Hashable, PickerContent: View>
                     text: value.map(textMap),
                     prompt: Text(title)
                 )
+                #if os(iOS)
                 .keyboardType(.decimalPad)
+                #endif
                 .autocorrectionDisabled(true)
                 .multilineTextAlignment(.trailing)
                 .frame(idealWidth: 120, maxWidth: 120)
