@@ -7,10 +7,22 @@ public extension View {
         isVisible: Bool,
         title: String,
         cancelTitle: String = "Cancel",
+        cancelEnabled: Bool = true,
         okTitle: String = "OK",
+        okEnabled: Bool = true,
         onSubmit: @escaping () -> Void
     ) -> some View {
-        modifier(DialogModifier(isVisible: isVisible, title: title, cancelTitle: cancelTitle, okTitle: okTitle, onSubmit: onSubmit))
+        modifier(
+            DialogModifier(
+                isVisible: isVisible,
+                title: title,
+                cancelTitle: cancelTitle,
+                cancelEnabled: cancelEnabled,
+                okTitle: okTitle,
+                okEnabled: okEnabled,
+                onSubmit: onSubmit
+            )
+        )
     }
 }
 
@@ -20,7 +32,9 @@ struct DialogModifier: ViewModifier {
     let isVisible: Bool
     let title: String
     let cancelTitle: String
+    let cancelEnabled: Bool
     let okTitle: String
+    let okEnabled: Bool
     let onSubmit: () -> Void
     
     func body(content: Content) -> some View {
@@ -37,12 +51,14 @@ struct DialogModifier: ViewModifier {
                         Button(cancelTitle) {
                             dismiss()
                         }.keyboardShortcut(.cancelAction)
+                            .disabled(!cancelEnabled)
                     }
                     
                     ToolbarItem(placement: .confirmationAction) {
                         Button(okTitle) {
                             onSubmit()
                         }.keyboardShortcut(.defaultAction)
+                            .disabled(!okEnabled)
                     }
                 }
         }
