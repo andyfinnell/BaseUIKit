@@ -28,8 +28,8 @@ public struct OpacityField: View {
             .keyboardType(.decimalPad)
             #endif
             .autocorrectionDisabled(true)
-            .multilineTextAlignment(.leading)
-            .frame(width: 80)
+            .multilineTextAlignment(.trailing)
+            .frame(width: 70)
             .labelsHidden()
             
             Button(action: {
@@ -66,7 +66,8 @@ public struct OpacityField: View {
 private extension OpacityField {
     private static let numberFormater: NumberFormatter = {
        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
+        formatter.numberStyle = .percent
+        formatter.multiplier = 100
         return formatter
     }()
 
@@ -75,7 +76,8 @@ private extension OpacityField {
     }
     
     func parseValue(_ value: String) -> Double {
-        let number = Double(value) ?? 0.0
+        let parsedNumber = OpacityField.numberFormater.number(from: value) ?? NSNumber(value: 0.0)
+        let number = parsedNumber.doubleValue
         return min(1, max(0, number))
     }
 }
