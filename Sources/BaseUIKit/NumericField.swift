@@ -30,6 +30,7 @@ public struct NumericField: View {
             )
             #if os(iOS)
             .keyboardType(.decimalPad)
+            .textFieldStyle(.roundedBorder)
             #endif
             .autocorrectionDisabled(true)
             .multilineTextAlignment(.trailing)

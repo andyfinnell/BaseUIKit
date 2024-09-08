@@ -11,14 +11,13 @@ public struct InspectorGroup<Content: View>: View {
     }
     
     public var body: some View {
-        #if os(macOS)
+#if os(macOS)
         DisclosureGroup(
             isExpanded: $isExpanded,
             content: {
-                Form {
-                    content()
-                }
-                .formStyle(.grouped)
+                content()
+                    .controlSize(.mini)
+                    .padding()
             }, label: {
                 Button(title) {
                     withAnimation {
@@ -29,9 +28,31 @@ public struct InspectorGroup<Content: View>: View {
                 .font(.headline)
             }
         )
-        .padding(.leading)
-        #else
-        DisclosureGroup(title, content: content)
-        #endif
+#else
+        DisclosureGroup(
+            isExpanded: $isExpanded,
+            content: {
+                content()
+                    .controlSize(.mini)
+                    .padding()
+            }, label: {
+                HStack {
+                    Button {
+                        withAnimation {
+                            isExpanded.toggle()
+                        }
+                    } label: {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    }
+
+                    Text(title)
+                    
+                    Spacer()
+                }
+                .padding()
+                .background(Color.secondaryBackground)
+            }
+        )
+#endif
     }
 }

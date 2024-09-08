@@ -23,13 +23,15 @@ public struct OpacityField: View {
             )
             #if os(macOS)
             .textFieldStyle(.squareBorder)
+            .frame(width: 50)
             #endif
             #if os(iOS)
+            .textFieldStyle(.roundedBorder)
             .keyboardType(.decimalPad)
+            .frame(width: 60)
             #endif
             .autocorrectionDisabled(true)
             .multilineTextAlignment(.trailing)
-            .frame(width: 70)
             .labelsHidden()
             
             Button(action: {

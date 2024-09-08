@@ -8,14 +8,8 @@ public struct InspectorContainer<Content: View>: View {
     }
     
     public var body: some View {
-        #if os(macOS)
         ScrollView {
             content()
         }
-        #else
-        List {
-            content()
-        }
-        #endif
     }
 }

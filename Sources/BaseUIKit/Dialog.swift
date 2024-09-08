@@ -47,18 +47,10 @@ struct DialogModifier: ViewModifier {
                     }
                 })
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(cancelTitle) {
-                            dismiss()
-                        }.keyboardShortcut(.cancelAction)
-                            .disabled(!cancelEnabled)
-                    }
-                    
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(okTitle) {
-                            onSubmit()
-                        }.keyboardShortcut(.defaultAction)
-                            .disabled(!okEnabled)
+                    CancelToolbarItem(cancelTitle, isEnabled: cancelEnabled)
+
+                    DefaultToolbarItem(okTitle, isEnabled: okEnabled) { _ in
+                        onSubmit()
                     }
                 }
         }
