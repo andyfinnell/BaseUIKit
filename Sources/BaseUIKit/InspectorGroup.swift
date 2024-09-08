@@ -19,15 +19,10 @@ public struct InspectorGroup<Content: View>: View {
                     .controlSize(.mini)
                     .padding()
             }, label: {
-                Button(title) {
-                    withAnimation {
-                        isExpanded.toggle()
-                    }
-                }
-                .buttonStyle(.plain)
-                .font(.headline)
+                Text(title)
             }
         )
+        .disclosureGroupStyle(InspectorDisclosureStyle())
 #else
         DisclosureGroup(
             isExpanded: $isExpanded,
@@ -36,23 +31,44 @@ public struct InspectorGroup<Content: View>: View {
                     .controlSize(.mini)
                     .padding()
             }, label: {
-                HStack {
-                    Button {
-                        withAnimation {
-                            isExpanded.toggle()
-                        }
-                    } label: {
-                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    }
+                Text(title)
+            }
+        )
+        .disclosureGroupStyle(InspectorDisclosureStyle())
+#endif
+    }
+}
 
-                    Text(title)
-                    
+struct InspectorDisclosureStyle: DisclosureGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack {
+            Button {
+                withAnimation {
+                    configuration.isExpanded.toggle()
+                }
+            } label: {
+                HStack(alignment: .firstTextBaseline) {
+                    Image(systemName: configuration.isExpanded ? "chevron.down" : "chevron.right")
+                        .foregroundColor(.accentColor)
+                        .animation(nil, value: configuration.isExpanded)
+
+                    configuration.label
+                        .foregroundColor(.accentColor)
+
                     Spacer()
                 }
                 .padding()
-                .background(Color.secondaryBackground)
             }
-        )
-#endif
+            .buttonStyle(.plain)
+            #if os(macOS)
+            .background(Color.background)
+            #else
+            .background(Color.secondaryBackground)
+            #endif
+            
+            if configuration.isExpanded {
+                configuration.content
+            }
+        }
     }
 }
