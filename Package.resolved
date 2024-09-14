@@ -1,0 +1,15 @@
+{
+  "originHash" : "bc606e23989d2e6d779a6fb0fe00287f751d8290b13fccf4183f27fe6955a94a",
+  "pins" : [
+    {
+      "identity" : "basekit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/andyfinnell/BaseKit.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "3b987b1da6ea03c9ccb4f760956521fda2411a41"
+      }
+    }
+  ],
+  "version" : 3
+}

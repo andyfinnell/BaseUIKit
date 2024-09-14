@@ -2,11 +2,14 @@ import SwiftUI
 
 public struct InspectorGroup<Content: View>: View {
     private let title: String
+    private let key: String
     private let content: () -> Content
     @State private var isExpanded = false
+    @Environment(\.documentFileURLHash) private var documentFileURLHash
     
-    public init(_ title: String, @ViewBuilder content: @escaping () -> Content) {
+    public init(_ title: String, key: String, @ViewBuilder content: @escaping () -> Content) {
         self.title = title
+        self.key = key
         self.content = content
     }
     
@@ -23,6 +26,13 @@ public struct InspectorGroup<Content: View>: View {
             }
         )
         .disclosureGroupStyle(InspectorDisclosureStyle())
+        .onAppear {
+            isExpanded = shouldBeVisible
+        }
+        .onChange(of: isExpanded) { oldValue, newValue in
+            shouldBeVisible = newValue
+        }
+
 #else
         DisclosureGroup(
             isExpanded: $isExpanded,
@@ -35,7 +45,37 @@ public struct InspectorGroup<Content: View>: View {
             }
         )
         .disclosureGroupStyle(InspectorDisclosureStyle())
+        .onAppear {
+            isExpanded = shouldBeVisible
+        }
+        .onChange(of: isExpanded) { oldValue, newValue in
+            shouldBeVisible = newValue
+        }
 #endif
+    }
+}
+
+private extension InspectorGroup {
+    var userDefaultsKey: String {
+        if let documentFileURLHash {
+            "\(documentFileURLHash).\(key).inspector.isVisible"
+        } else {
+            "\(key).inexpector.isVisible"
+        }
+    }
+    
+    var shouldBeVisible: Bool {
+        get {
+            UserDefaults.standard.bool(forKey: userDefaultsKey)
+        }
+        
+        nonmutating set {
+            if newValue == false {
+                UserDefaults.standard.removeObject(forKey: userDefaultsKey)
+            } else {
+                UserDefaults.standard.set(true, forKey: userDefaultsKey)
+            }
+        }
     }
 }
 
