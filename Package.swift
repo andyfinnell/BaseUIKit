@@ -1,4 +1,4 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -26,16 +26,10 @@ let package = Package(
             name: "BaseUIKit",
             dependencies: [
                 .product(name: "BaseKit", package: "BaseKit")
-            ],
-            swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
             ]
         ),
         .testTarget(
             name: "BaseUIKitTests",
-            dependencies: ["BaseUIKit"],
-            swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
-            ]),
+            dependencies: ["BaseUIKit"]),
     ]
 )

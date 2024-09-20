@@ -1,6 +1,6 @@
 import SwiftUI
 
-public struct TextPickerField<Value, PickerValue: Hashable, PickerContent: View>: View {
+public struct TextPickerField<Value: Sendable, PickerValue: Hashable, PickerContent: View>: View {
     let title: String
     let value: Binding<Value>
     let textMap: BindingMap<Value, String>

@@ -1,10 +1,10 @@
 import SwiftUI
 
 public struct BindingMap<Value, ToValue> {
-    let get: (Value) -> ToValue
-    let set: (Value, ToValue) -> Value
+    let get: @Sendable (Value) -> ToValue
+    let set: @Sendable (Value, ToValue) -> Value
     
-    public init(_ keyPath: WritableKeyPath<Value, ToValue>) {
+    public init(_ keyPath: WritableKeyPath<Value, ToValue> & Sendable) {
         get = { $0[keyPath: keyPath] }
         set = { value, toValue in
             var newValue = value
@@ -13,14 +13,14 @@ public struct BindingMap<Value, ToValue> {
         }
     }
     
-    public init(get: @escaping (Value) -> ToValue, set: @escaping (Value, ToValue) -> Value) {
+    public init(get: @Sendable @escaping (Value) -> ToValue, set: @Sendable @escaping (Value, ToValue) -> Value) {
         self.get = get
         self.set = set
     }
 }
 
-public extension Binding {
-    func map<ToValue>(get: @escaping (Value) -> ToValue, set: @escaping (Value, ToValue) -> Value) -> Binding<ToValue> {
+public extension Binding where Value: Sendable {
+    func map<ToValue>(get: @Sendable @escaping (Value) -> ToValue, set: @Sendable @escaping (Value, ToValue) -> Value) -> Binding<ToValue> {
         Binding<ToValue>(
             get: { get(wrappedValue) },
             set: { wrappedValue = set(wrappedValue, $0) }

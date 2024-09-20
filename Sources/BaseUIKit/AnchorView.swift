@@ -93,5 +93,4 @@ struct TestAnchorView: View {
 #Preview {
     TestAnchorView()
         .padding()
-        .previewLayout(.sizeThatFits)
 }
