@@ -6,9 +6,9 @@ import PackageDescription
 let package = Package(
     name: "BaseUIKit",
     platforms: [
-        .macOS(.v14),
-        .iOS(.v17),
-        .tvOS(.v17)
+        .macOS(.v15),
+        .iOS(.v18),
+        .tvOS(.v18)
     ],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
