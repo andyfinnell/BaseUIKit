@@ -107,7 +107,9 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
             
             switch Parser.parseValue(newValue) {
             case let .success(newValue):
-                value.wrappedValue = newValue
+                if value.wrappedValue != newValue {
+                    value.wrappedValue = newValue
+                }
                 errorMessage = nil
             case let .failure(error):
                 errorMessage = error.message
@@ -118,8 +120,11 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
                 return
             }
             
-            value.wrappedValue = Parser.fromDoubleValue(newValue, existing: value.wrappedValue)
-            text = Parser.formatValue(value.wrappedValue)
+            let parsedValue = Parser.fromDoubleValue(newValue, existing: value.wrappedValue)
+            if value.wrappedValue != parsedValue {
+                value.wrappedValue = parsedValue
+            }
+            text = Parser.formatValue(parsedValue)
         }
 
     }

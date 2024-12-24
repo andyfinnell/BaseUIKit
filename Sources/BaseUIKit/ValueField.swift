@@ -83,7 +83,9 @@ public struct ValueField<Parser: FieldParser>: View {
             
             switch Parser.parseValue(newValue) {
             case let .success(newValue):
-                value.wrappedValue = newValue
+                if value.wrappedValue != newValue {
+                    value.wrappedValue = newValue
+                }
                 errorMessage = nil
             case let .failure(error):
                 errorMessage = error.message

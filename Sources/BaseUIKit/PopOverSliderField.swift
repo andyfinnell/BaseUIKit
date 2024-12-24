@@ -82,7 +82,10 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
                     onBeginEditing: onBeginEditing,
                     onEndEditing: onEndEditing,
                     onChange: { newValue in
-                        value.wrappedValue = Parser.fromDoubleValue(newValue, existing: value.wrappedValue)
+                        let parsedValue = Parser.fromDoubleValue(newValue, existing: value.wrappedValue)
+                        if value.wrappedValue != parsedValue {
+                            value.wrappedValue = parsedValue
+                        }
                     },
                     toText: { newValue in
                         Parser.formatValue(Parser.fromDoubleValue(newValue, existing: value.wrappedValue))
@@ -106,7 +109,9 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
             
             switch Parser.parseValue(newValue) {
             case let .success(newValue):
-                value.wrappedValue = newValue
+                if value.wrappedValue != newValue {
+                    value.wrappedValue = newValue
+                }
                 errorMessage = nil
             case let .failure(error):
                 errorMessage = error.message
