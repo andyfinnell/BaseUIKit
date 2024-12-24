@@ -7,7 +7,6 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
     private let onBeginEditing: () -> Void
     private let onEndEditing: () -> Void
     @State private var text: String = ""
-    @State private var number: Double = 0.0
     @State private var errorMessage: String? = nil
     @State private var isShowing = false
     
@@ -74,45 +73,22 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
                 }, label: {
                     Image(systemName: "chevron.up.chevron.down")
                 })
-#if os(macOS)
-                .popover(isPresented: $isShowing) {
-                    Slider(
-                        value: $number,
-                        in: range,
-                        step: 0.5,
-                        onEditingChanged: { isEditing in
-                            if isEditing {
-                                onBeginEditing()
-                            } else {
-                                onEndEditing()
-                            }
-                        }
-                    )
-                    .controlSize(.mini)
-                    .frame(minWidth: 200)
-                    .padding()
-                }
-#endif
             }
-#if os(iOS)
             .popover(isPresented: $isShowing) {
-                Slider(
-                    value: $number,
-                    in: range,
-                    step: 0.5,
-                    onEditingChanged: { isEditing in
-                        if isEditing {
-                            onBeginEditing()
-                        } else {
-                            onEndEditing()
-                        }
+                PopOverSlider(
+                    number: Parser.doubleValue(value.wrappedValue),
+                    text: $text,
+                    range: range,
+                    onBeginEditing: onBeginEditing,
+                    onEndEditing: onEndEditing,
+                    onChange: { newValue in
+                        value.wrappedValue = Parser.fromDoubleValue(newValue, existing: value.wrappedValue)
+                    },
+                    toText: { newValue in
+                        Parser.formatValue(Parser.fromDoubleValue(newValue, existing: value.wrappedValue))
                     }
                 )
-                .controlSize(.mini)
-                .frame(minWidth: 200)
-                .padding()
             }
-#endif
             
             if let errorMessage {
                 Text(errorMessage)
@@ -122,7 +98,6 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
         }
         .onChange(of: value.wrappedValue, initial: true) { oldValue, newValue in
             text = Parser.formatValue(newValue)
-            number = Parser.doubleValue(newValue)
         }
         .onChange(of: text) { oldValue, newValue in
             guard newValue != oldValue else {
@@ -137,14 +112,68 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
                 errorMessage = error.message
             }
         }
+    }
+}
+
+struct PopOverSlider: View {
+    @State var number: Double
+    @Binding var text: String
+    let range: ClosedRange<Double>
+    let onBeginEditing: () -> Void
+    let onEndEditing: () -> Void
+    let onChange: (Double) -> Void
+    let toText: (Double) -> String
+    
+    var body: some View {
+#if os(macOS)
+        Slider(
+            value: $number,
+            in: range,
+            step: 0.5,
+            onEditingChanged: { isEditing in
+                if isEditing {
+                    onBeginEditing()
+                } else {
+                    onEndEditing()
+                }
+            }
+        )
+        .controlSize(.mini)
+        .frame(minWidth: 200)
+        .padding()
         .onChange(of: number) { oldValue, newValue in
             guard newValue != oldValue else {
                 return
             }
             
-            value.wrappedValue = Parser.fromDoubleValue(newValue, existing: value.wrappedValue)
-            text = Parser.formatValue(value.wrappedValue)
+            onChange(newValue)
+            text = toText(newValue)
         }
+#endif
+#if os(iOS)
+        Slider(
+            value: $number,
+            in: range,
+            step: 0.5,
+            onEditingChanged: { isEditing in
+                if isEditing {
+                    onBeginEditing()
+                } else {
+                    onEndEditing()
+                }
+            }
+        )
+        .controlSize(.mini)
+        .frame(minWidth: 200)
+        .padding()
+        .onChange(of: number) { oldValue, newValue in
+            guard newValue != oldValue else {
+                return
+            }
+            
+            onChange(newValue)
+            text = toText(newValue)
+        }
+#endif
     }
 }
-
