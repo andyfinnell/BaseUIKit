@@ -9,6 +9,8 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
     @State private var text: String = ""
     @State private var errorMessage: String? = nil
     @State private var isShowing = false
+    @State private var isTextEditing = false
+    @FocusState private var isFocused: Bool
     
     public init(
         _ title: String,
@@ -55,6 +57,10 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
                             .multilineTextAlignment(.trailing)
                     }
                 )
+                .focused($isFocused)
+                .onSubmit {
+                    endTextEditingIfNecessary()
+                }
 #if os(macOS)
                 .textFieldStyle(.squareBorder)
                 .frame(width: 50)
@@ -110,6 +116,7 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
             switch Parser.parseValue(newValue) {
             case let .success(newValue):
                 if value.wrappedValue != newValue {
+                    beginTextEditingIfNecessary()
                     value.wrappedValue = newValue
                 }
                 errorMessage = nil
@@ -117,6 +124,32 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
                 errorMessage = error.message
             }
         }
+        .onChange(of: isFocused) { oldValue, newValue in
+            guard newValue != oldValue else {
+                return
+            }
+            if !newValue {
+                endTextEditingIfNecessary()
+            }
+        }
+    }
+}
+
+private extension PopOverSliderField {
+    func beginTextEditingIfNecessary() {
+        guard isFocused && !isTextEditing else {
+            return
+        }
+        isTextEditing = true
+        onBeginEditing()
+    }
+    
+    func endTextEditingIfNecessary() {
+        guard isTextEditing else {
+            return
+        }
+        isTextEditing = false
+        onEndEditing()
     }
 }
 
@@ -134,7 +167,7 @@ struct PopOverSlider: View {
         Slider(
             value: $number,
             in: range,
-            step: 0.5,
+            step: computeStep(fromRange: range),
             onEditingChanged: { isEditing in
                 if isEditing {
                     onBeginEditing()
@@ -159,7 +192,7 @@ struct PopOverSlider: View {
         Slider(
             value: $number,
             in: range,
-            step: 0.5,
+            step: computeStep(fromRange: range),
             onEditingChanged: { isEditing in
                 if isEditing {
                     onBeginEditing()
@@ -181,4 +214,8 @@ struct PopOverSlider: View {
         }
 #endif
     }
+}
+
+private func computeStep(fromRange range: ClosedRange<Double>) -> Double {
+    (range.upperBound - range.lowerBound) / 200.0
 }

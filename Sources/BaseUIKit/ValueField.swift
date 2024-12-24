@@ -23,13 +23,25 @@ public protocol FieldParser<Value> {
 public struct ValueField<Parser: FieldParser>: View {
     private let title: String
     private let value: Binding<Parser.Value>
+    private let onBeginEditing: () -> Void
+    private let onEndEditing: () -> Void
     @State private var errorMessage: String?
     @State private var text: String = ""
+    @State private var isTextEditing = false
+    @FocusState private var isFocused: Bool
 
-    public init(_ title: String, value: Binding<Parser.Value>, errorMessage: String? = nil) {
+    public init(
+        _ title: String,
+        value: Binding<Parser.Value>,
+        errorMessage: String? = nil,
+        onBeginEditing: @escaping () -> Void = {},
+        onEndEditing: @escaping () -> Void = {}
+    ) {
         self.title = title
         self.value = value
         self.errorMessage = errorMessage
+        self.onBeginEditing = onBeginEditing
+        self.onEndEditing = onEndEditing
     }
     
     public init<C: RandomAccessCollection & Sendable>(
@@ -37,12 +49,16 @@ public struct ValueField<Parser: FieldParser>: View {
         sources: C,
         value: KeyPath<C.Element, Binding<Parser.Value>> & Sendable,
         in range: ClosedRange<Double>,
-        errorMessage: String? = nil
+        errorMessage: String? = nil,
+        onBeginEditing: @escaping () -> Void = {},
+        onEndEditing: @escaping () -> Void = {}
     ) {
         self.init(
             title,
             value: Parser.multiselectBinding(sources: sources, value: value),
-            errorMessage: errorMessage
+            errorMessage: errorMessage,
+            onBeginEditing: onBeginEditing,
+            onEndEditing: onEndEditing
         )
     }
 
@@ -56,6 +72,10 @@ public struct ValueField<Parser: FieldParser>: View {
                         .multilineTextAlignment(.trailing)
                 }
             )
+            .focused($isFocused)
+            .onSubmit {
+                endTextEditingIfNecessary()
+            }
             #if os(macOS)
             .textFieldStyle(.squareBorder)
             #endif
@@ -84,6 +104,7 @@ public struct ValueField<Parser: FieldParser>: View {
             switch Parser.parseValue(newValue) {
             case let .success(newValue):
                 if value.wrappedValue != newValue {
+                    beginTextEditingIfNecessary()
                     value.wrappedValue = newValue
                 }
                 errorMessage = nil
@@ -91,5 +112,31 @@ public struct ValueField<Parser: FieldParser>: View {
                 errorMessage = error.message
             }
         }
+        .onChange(of: isFocused) { oldValue, newValue in
+            guard newValue != oldValue else {
+                return
+            }
+            if !newValue {
+                endTextEditingIfNecessary()
+            }
+        }
+    }
+}
+
+private extension ValueField {
+    func beginTextEditingIfNecessary() {
+        guard isFocused && !isTextEditing else {
+            return
+        }
+        isTextEditing = true
+        onBeginEditing()
+    }
+    
+    func endTextEditingIfNecessary() {
+        guard isTextEditing else {
+            return
+        }
+        isTextEditing = false
+        onEndEditing()
     }
 }

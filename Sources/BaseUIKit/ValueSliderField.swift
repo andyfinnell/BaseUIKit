@@ -14,6 +14,8 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
     @State private var errorMessage: String?
     @State private var text: String = ""
     @State private var number: Double = 0.0
+    @State private var isTextEditing = false
+    @FocusState private var isFocused: Bool
 
     public init(
         _ title: String,
@@ -76,6 +78,10 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
                             .multilineTextAlignment(.trailing)
                     }
                 )
+                .focused($isFocused)
+                .onSubmit {
+                    endTextEditingIfNecessary()
+                }
 #if os(macOS)
                 .textFieldStyle(.squareBorder)
                 .frame(width: 50)
@@ -108,6 +114,7 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
             switch Parser.parseValue(newValue) {
             case let .success(newValue):
                 if value.wrappedValue != newValue {
+                    beginTextEditingIfNecessary()
                     value.wrappedValue = newValue
                 }
                 errorMessage = nil
@@ -126,6 +133,31 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
             }
             text = Parser.formatValue(parsedValue)
         }
+        .onChange(of: isFocused) { oldValue, newValue in
+            guard newValue != oldValue else {
+                return
+            }
+            if !newValue {
+                endTextEditingIfNecessary()
+            }
+        }
+    }
+}
 
+private extension ValueSliderField {
+    func beginTextEditingIfNecessary() {
+        guard isFocused && !isTextEditing else {
+            return
+        }
+        isTextEditing = true
+        onBeginEditing()
+    }
+    
+    func endTextEditingIfNecessary() {
+        guard isTextEditing else {
+            return
+        }
+        isTextEditing = false
+        onEndEditing()
     }
 }
