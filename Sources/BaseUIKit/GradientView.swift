@@ -14,80 +14,187 @@ public struct GradientView: View {
         }
     }
     
-    private var stops: Binding<[Stop]>
+    private let allStops: [Binding<[Stop]>]
     @State private var width: CGFloat = 0.0
     @State private var removingStop: RemovingStop? = nil
     
     public init(stops: Binding<[Stop]>) {
-        self.stops = stops
+        self.allStops = [stops]
     }
     
+    public init<C: RandomAccessCollection & Sendable>(
+        sources: C,
+        stop: KeyPath<C.Element, Binding<[Stop]>> & Sendable
+    ) {
+        allStops = sources.map { $0[keyPath: stop] }
+    }
+
     public var body: some View {
         VStack(spacing: 0) {
-            LinearGradient(
-                stops: stops.wrappedValue.sorted(by: { $0.offset < $1.offset }).map {
-                    Gradient.Stop(color: $0.color.swiftUI, location: $0.offset)
-                },
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .frame(height: 44)
-            .onTapGesture { location in
-                insertStop(at: location, inWidth: width)
+            if hasSingleSetOfStops {
+                linearGradient
+                colorStops
+            } else {
+                uniqueLinearGradients
+                colorStopsBackground
             }
-
-            Color.secondary
-                .frame(height: ColorChip.bodyHeight)
-                .onTapGesture { location in
-                    insertStop(at: location, inWidth: width)
-                }
-                .overlay {
-                    GeometryReader { geometry in
-                        ForEach(stops) { stop in
-                            ColorChip(
-                                color: Binding(
-                                    get: {
-                                        stop.wrappedValue.color
-                                    },
-                                    set: {
-                                        stop.wrappedValue = Stop(id: stop.wrappedValue.id, offset: stop.wrappedValue.offset, color: $0)
-                                    }
-                                )
-                            )
-                            .background(alignment: .top) {
-                                if let removingStop, removingStop.id == stop.wrappedValue.id {
-                                    VStack {
-                                        ColorChip(
-                                            color: Binding.constant(BaseKit.Color.black)
-                                        )
-                                        .hidden()
-                                        
-                                        RemoveTag()
-                                            .fixedSize()
-                                    }
-                                }
-                            }
-                            .position(stopLocation(stop, width: geometry.size.width))
-                            .gesture(
-                                DragGesture()
-                                    .onChanged { value in
-                                        dragStop(stop, to: value.location, width: geometry.size.width)
-                                    }
-                                    .onEnded { value in
-                                        dragStopFinished(stop, to: value.location, width: geometry.size.width)
-                                    }
-                            )
-                        }
-                        .onChange(of: geometry.size.width, initial: true) { _, new in
-                            self.width = new
-                        }
-                    }
-                }
         }
     }
 }
 
 private extension GradientView {
+    @ViewBuilder
+    func linearGradientView(for stops: Binding<[Stop]>) -> some View {
+        LinearGradient(
+            stops: stops.wrappedValue.sorted(by: { $0.offset < $1.offset }).map {
+                Gradient.Stop(color: $0.color.swiftUI, location: $0.offset)
+            },
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+    
+    @ViewBuilder
+    var linearGradient: some View {
+        linearGradientView(for: stops)
+        .frame(height: GradientView.totalGradientHeight)
+        .onTapGesture { location in
+            insertStop(at: location, inWidth: width)
+        }
+    }
+    
+    @ViewBuilder
+    var colorStops: some View {
+        colorStopsBackground
+            .onTapGesture { location in
+                insertStop(at: location, inWidth: width)
+            }
+            .overlay {
+                GeometryReader { geometry in
+                    ForEach(stops) { stop in
+                        colorStop(for: stop, width: geometry.size.width)
+                    }
+                    .onChange(of: geometry.size.width, initial: true) { _, new in
+                        self.width = new
+                    }
+                }
+            }
+    }
+    
+    @ViewBuilder
+    func colorStop(for stop: Binding<Stop>, width: CGFloat) -> some View {
+        ColorChip(
+            color: Binding(
+                get: {
+                    stop.wrappedValue.color
+                },
+                set: {
+                    stop.wrappedValue = Stop(id: stop.wrappedValue.id, offset: stop.wrappedValue.offset, color: $0)
+                }
+            )
+        )
+        .background(alignment: .top) {
+            if let removingStop, removingStop.id == stop.wrappedValue.id {
+                VStack {
+                    ColorChip(
+                        color: Binding.constant(BaseKit.Color.black)
+                    )
+                    .hidden()
+                    
+                    RemoveTag()
+                        .fixedSize()
+                }
+            }
+        }
+        .position(stopLocation(stop, width: width))
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    dragStop(stop, to: value.location, width: width)
+                }
+                .onEnded { value in
+                    dragStopFinished(stop, to: value.location, width: width)
+                }
+        )
+    }
+    
+    @ViewBuilder
+    var colorStopsBackground: some View {
+        Color.secondary
+            .frame(height: ColorChip.bodyHeight)
+    }
+
+    @ViewBuilder
+    var uniqueLinearGradients: some View {
+        ForEach(presentedStops.indices, id: \.self) { index in
+            linearGradientView(for: presentedStops[index])
+            .frame(height: setOfStopsHeight)
+            .onTapGesture {
+                stops.wrappedValue = presentedStops[index].wrappedValue
+            }
+        }
+    }
+    
+    static let defaultStops: [GradientView.Stop] = [
+        GradientView.Stop(id: UUID(), offset: 0.0, color: .white),
+        GradientView.Stop(id: UUID(), offset: 1.0, color: .black),
+    ]
+    
+    var stops: Binding<[Stop]> {
+        if let stop = allStops.only {
+            return stop
+        } else {
+            return Binding<[Stop]>(
+                get: {
+                    allStops.first?.wrappedValue ?? GradientView.defaultStops
+                },
+                set: { newValue, transaction in
+                    for stop in allStops {
+                        stop.wrappedValue = newValue
+                    }
+                }
+            )
+        }
+    }
+    
+    var hasSingleSetOfStops: Bool {
+        uniqueStops.count == 1
+    }
+    
+    var uniqueStops: [Binding<[Stop]>] {
+        var unique = [Binding<[Stop]>]()
+        for stop in allStops {
+            let haveEquivalent = unique.contains { $0.isEquivalent(to: stop) }
+            guard !haveEquivalent else {
+                continue
+            }
+            unique.append(stop)
+        }
+        return unique
+    }
+    
+    var presentedStops: [Binding<[Stop]>] {
+        let unique = uniqueStops
+        let max = maximumSetOfStops
+        if unique.count <= max {
+            return unique
+        } else {
+            return Array(unique[0..<max])
+        }
+    }
+    
+    var setOfStopsHeight: CGFloat {
+        let setCount = presentedStops.count
+        return GradientView.totalGradientHeight / CGFloat(setCount)
+    }
+
+    static let totalGradientHeight: CGFloat = 44.0
+    static let minimumGradientHeight: CGFloat = 11
+    
+    var maximumSetOfStops: Int {
+        Int(floor(GradientView.totalGradientHeight / GradientView.minimumGradientHeight))
+    }
+
     func insertStop(at location: CGPoint, inWidth width: CGFloat) {
         let offset = clamp(location.x / width, 0.0, 1.0)
         let stops = stops.wrappedValue.sorted(by: { $0.offset < $1.offset })
@@ -190,6 +297,24 @@ private extension GradientView {
     }
 }
 
+private extension GradientView.Stop {
+    func isEquivalent(to other: GradientView.Stop) -> Bool {
+        offset == other.offset && color == other.color
+    }
+}
+
+private extension Array where Element == GradientView.Stop {
+    func isEquivalent(to other: [GradientView.Stop]) -> Bool {
+        count == other.count && zip(self, other).allSatisfy { $0.isEquivalent(to: $1) }
+    }
+}
+
+private extension Binding where Value == [GradientView.Stop] {
+    func isEquivalent(to other: Binding<[GradientView.Stop]>) -> Bool {
+        wrappedValue.isEquivalent(to: other.wrappedValue)
+    }
+}
+
 private struct GradientViewPreview: View {
     @State var stops: [GradientView.Stop] = [
         GradientView.Stop(id: UUID(), offset: 0.0, color: .white),
@@ -202,7 +327,40 @@ private struct GradientViewPreview: View {
     }
 }
 
+private struct GradientViewMultiselectPreview: View {
+    @State var stops: [[GradientView.Stop]] = [
+        [
+            GradientView.Stop(id: UUID(), offset: 0.0, color: .white),
+            GradientView.Stop(id: UUID(), offset: 1.0, color: .black),
+        ],
+        [
+            GradientView.Stop(id: UUID(), offset: 0.0, color: .red),
+            GradientView.Stop(id: UUID(), offset: 0.5, color: .green),
+            GradientView.Stop(id: UUID(), offset: 1.0, color: .blue),
+        ],
+        [
+            GradientView.Stop(id: UUID(), offset: 0.0, color: .white),
+            GradientView.Stop(id: UUID(), offset: 1.0, color: .black),
+        ],
+        [
+            GradientView.Stop(id: UUID(), offset: 0.0, color: .yellow),
+            GradientView.Stop(id: UUID(), offset: 1.0, color: .orange),
+        ],
+
+    ]
+    
+    var body: some View {
+        GradientView(sources: $stops, stop: \.self)
+            .frame(width: 320)
+    }
+}
+
 #Preview {
-    GradientViewPreview()
-        .padding()
+    VStack {
+        GradientViewPreview()
+            .padding()
+        
+        GradientViewMultiselectPreview()
+            .padding()
+    }
 }

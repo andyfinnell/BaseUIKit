@@ -1,6 +1,5 @@
 import SwiftUI
 import BaseKit
-import BaseUIKit
 
 struct ColorChip: View {
     @Binding var color: BaseKit.Color

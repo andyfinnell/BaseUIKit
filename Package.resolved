@@ -1,5 +1,5 @@
 {
-  "originHash" : "bc606e23989d2e6d779a6fb0fe00287f751d8290b13fccf4183f27fe6955a94a",
+  "originHash" : "0aff276d2d2c466dcdf23c5f177fa2cc111a46089d559af356ab36765c0f9028",
   "pins" : [
     {
       "identity" : "basekit",
@@ -7,7 +7,7 @@
       "location" : "https://github.com/andyfinnell/BaseKit.git",
       "state" : {
         "branch" : "main",
-        "revision" : "3b987b1da6ea03c9ccb4f760956521fda2411a41"
+        "revision" : "33ebb041ebafc1a1a6b3d0226629092c5f1611fa"
       }
     }
   ],
