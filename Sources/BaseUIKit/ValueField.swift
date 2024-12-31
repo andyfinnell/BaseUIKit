@@ -48,7 +48,6 @@ public struct ValueField<Parser: FieldParser>: View {
         _ title: String,
         sources: C,
         value: KeyPath<C.Element, Binding<Parser.Value>> & Sendable,
-        in range: ClosedRange<Double>,
         errorMessage: String? = nil,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}

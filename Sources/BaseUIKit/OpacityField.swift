@@ -1,86 +1,77 @@
 import SwiftUI
 
-public struct OpacityField: View {
-    private var opacity: Binding<Double>
-    @State private var isShowing = false
-    
-    public init(value: Binding<Double>) {
-        self.opacity = value
-    }
-    
-    public var body: some View {
-        HStack {
-            TextField(
-                "Opacity",
-                text: Binding<String>(
-                    get: {
-                        formatValue(opacity.wrappedValue)
-                    },
-                    set: {
-                        opacity.wrappedValue = parseValue($0)
-                    }
-                )
-            )
-            #if os(macOS)
-            .textFieldStyle(.squareBorder)
-            .frame(width: 50)
-            #endif
-            #if os(iOS)
-            .textFieldStyle(.roundedBorder)
-            .keyboardType(.decimalPad)
-            .frame(width: 60)
-            #endif
-            .autocorrectionDisabled(true)
-            .multilineTextAlignment(.trailing)
-            .labelsHidden()
-            
-            Button(action: {
-                isShowing.toggle()
-            }, label: {
-                Image(systemName: "chevron.up.chevron.down")
-            })
-            #if os(macOS)
-            .popover(isPresented: $isShowing) {
-                Slider(
-                    value: opacity,
-                    in: 0...1
-                )
-                .controlSize(.mini)
-                .frame(minWidth: 200)
-                .padding()
-            }
-            #endif
-        }
-        #if os(iOS)
-        .popover(isPresented: $isShowing) {
-            Slider(
-                value: opacity,
-                in: 0...1
-            )
-            .controlSize(.mini)
-            .frame(minWidth: 200)
-            .padding()
-        }
-        #endif
-    }
-}
-
-private extension OpacityField {
+public struct OpacityFieldParser: SliderFieldParser {
     private static let numberFormater: NumberFormatter = {
        let formatter = NumberFormatter()
         formatter.numberStyle = .percent
         formatter.multiplier = 100
         return formatter
     }()
-
-    func formatValue(_ opacity: Double) -> String {
-        OpacityField.numberFormater.string(for: opacity) ?? "0"
+    
+    public static func parseValue(_ text: String) -> Result<Double, FieldParserError> {
+        guard let parsedNumber = numberFormater.number(from: text) else {
+            return Result.failure(FieldParserError(message: "Invalid opacity"))
+        }
+        let number = parsedNumber.doubleValue
+        return Result.success(min(1, max(0, number)))
     }
     
-    func parseValue(_ value: String) -> Double {
-        let parsedNumber = OpacityField.numberFormater.number(from: value) ?? NSNumber(value: 0.0)
-        let number = parsedNumber.doubleValue
-        return min(1, max(0, number))
+    public static func formatValue(_ value: Double) -> String {
+        numberFormater.string(for: value) ?? "0"
+    }
+    
+    public static func multiselectBinding<C: RandomAccessCollection & Sendable>(
+        sources: C,
+        value: KeyPath<C.Element, Binding<Double>> & Sendable
+    ) -> Binding<Double> {
+        Binding<Double>(sources: sources, value: value)
+    }
+
+    public static func doubleValue(_ value: Double) -> Double {
+        value
+    }
+    
+    public static func fromDoubleValue(_ number: Double, existing: Double) -> Double {
+        number
+    }
+}
+
+public struct OpacityField: View {
+    private let value: Binding<Double>
+    private let onBeginEditing: () -> Void
+    private let onEndEditing: () -> Void
+
+    public init(
+        value: Binding<Double>,
+        onBeginEditing: @escaping () -> Void = {},
+        onEndEditing: @escaping () -> Void = {}
+    ) {
+        self.value = value
+        self.onBeginEditing = onBeginEditing
+        self.onEndEditing = onEndEditing
+    }
+
+    public init<C: RandomAccessCollection & Sendable>(
+        sources: C,
+        value: KeyPath<C.Element, Binding<Double>> & Sendable,
+        onBeginEditing: @escaping () -> Void = {},
+        onEndEditing: @escaping () -> Void = {}
+    ) {
+        self.init(
+            value: OpacityFieldParser.multiselectBinding(sources: sources, value: value),
+            onBeginEditing: onBeginEditing,
+            onEndEditing: onEndEditing
+        )
+    }
+
+    public var body: some View {
+        PopOverSliderField<OpacityFieldParser>(
+            "Opacity",
+            value: value,
+            in: 0...1,
+            onBeginEditing: onBeginEditing,
+            onEndEditing: onEndEditing
+        )
     }
 }
 
