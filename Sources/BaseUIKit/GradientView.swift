@@ -150,7 +150,7 @@ private extension GradientView {
                 },
                 set: { newValue, transaction in
                     for stop in allStops {
-                        stop.wrappedValue = newValue
+                        stop.wrappedValue = makeEquivalentStops(to: newValue, basedOn: stop.wrappedValue)
                     }
                 }
             )
@@ -195,6 +195,35 @@ private extension GradientView {
         Int(floor(GradientView.totalGradientHeight / GradientView.minimumGradientHeight))
     }
 
+    func makeEquivalentStops(to newStops: [Stop], basedOn existingStops: [Stop]) -> [Stop] {
+        var equivalentStops = [Stop]()
+
+        var remainingNewStops = [Stop]()
+        var remainingExistingStops = existingStops
+        for newStop in newStops {
+            if remainingExistingStops.contains(where: { $0.id == newStop.id }) {
+                equivalentStops.append(newStop)
+                remainingExistingStops.removeAll(where: { $0.id == newStop.id })
+            } else {
+                remainingNewStops.append(newStop)
+            }
+        }
+        
+        for newStop in remainingNewStops {
+            if let nextExisting = remainingExistingStops.first {
+                remainingExistingStops.removeFirst()
+                
+                equivalentStops.append(Stop(id: nextExisting.id, offset: newStop.offset, color: newStop.color))
+            } else {
+                equivalentStops.append(Stop(id: UUID(), offset: newStop.offset, color: newStop.color))
+            }
+        }
+        
+        equivalentStops.sort { $0.offset < $1.offset }
+        
+        return equivalentStops
+    }
+    
     func insertStop(at location: CGPoint, inWidth width: CGFloat) {
         let offset = clamp(location.x / width, 0.0, 1.0)
         let stops = stops.wrappedValue.sorted(by: { $0.offset < $1.offset })
@@ -296,16 +325,27 @@ private extension GradientView {
         return !isFirst && !isLast
     }
 }
-
-private extension GradientView.Stop {
+ 
+public extension GradientView.Stop {
     func isEquivalent(to other: GradientView.Stop) -> Bool {
         offset == other.offset && color == other.color
     }
+    
+    func equivalentHash(into hasher: inout Hasher) {
+        hasher.combine(offset)
+        hasher.combine(color)
+    }
 }
 
-private extension Array where Element == GradientView.Stop {
+public extension Array where Element == GradientView.Stop {
     func isEquivalent(to other: [GradientView.Stop]) -> Bool {
         count == other.count && zip(self, other).allSatisfy { $0.isEquivalent(to: $1) }
+    }
+    
+    func equivalentHash(into hasher: inout Hasher) {
+        for element in self {
+            element.equivalentHash(into: &hasher)
+        }
     }
 }
 
