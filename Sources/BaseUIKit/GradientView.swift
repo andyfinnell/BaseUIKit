@@ -17,16 +17,29 @@ public struct GradientView: View {
     private let allStops: [Binding<[Stop]>]
     @State private var width: CGFloat = 0.0
     @State private var removingStop: RemovingStop? = nil
-    
-    public init(stops: Binding<[Stop]>) {
+    @State private var isDragging = false
+    private let onBeginEditing: () -> Void
+    private let onEndEditing: () -> Void
+
+    public init(
+        stops: Binding<[Stop]>,
+        onBeginEditing: @escaping () -> Void = {},
+        onEndEditing: @escaping () -> Void = {}
+    ) {
         self.allStops = [stops]
+        self.onBeginEditing = onBeginEditing
+        self.onEndEditing = onEndEditing
     }
     
     public init<C: RandomAccessCollection & Sendable>(
         sources: C,
-        stop: KeyPath<C.Element, Binding<[Stop]>> & Sendable
+        stop: KeyPath<C.Element, Binding<[Stop]>> & Sendable,
+        onBeginEditing: @escaping () -> Void = {},
+        onEndEditing: @escaping () -> Void = {}
     ) {
         allStops = sources.map { $0[keyPath: stop] }
+        self.onBeginEditing = onBeginEditing
+        self.onEndEditing = onEndEditing
     }
 
     public var body: some View {
@@ -91,13 +104,17 @@ private extension GradientView {
                 set: {
                     stop.wrappedValue = Stop(id: stop.wrappedValue.id, offset: stop.wrappedValue.offset, color: $0)
                 }
-            )
+            ),
+            onBeginEditing: onBeginEditing,
+            onEndEditing: onEndEditing
         )
         .background(alignment: .top) {
             if let removingStop, removingStop.id == stop.wrappedValue.id {
                 VStack {
                     ColorChip(
-                        color: Binding.constant(BaseKit.Color.black)
+                        color: Binding.constant(BaseKit.Color.black),
+                        onBeginEditing: onBeginEditing,
+                        onEndEditing: onEndEditing
                     )
                     .hidden()
                     
@@ -267,6 +284,13 @@ private extension GradientView {
             return
         }
         
+        let wasDragging = isDragging
+        isDragging = true
+        
+        if !wasDragging {
+            onBeginEditing()
+        }
+        
         if isRemoving(location: location, width: width) {
             self.removingStop = RemovingStop(
                 id: stop.wrappedValue.id,
@@ -297,6 +321,9 @@ private extension GradientView {
             )
         }
         self.removingStop = nil
+        isDragging = false
+        
+        onEndEditing()
     }
     
     func isRemoving(location: CGPoint, width: CGFloat) -> Bool {

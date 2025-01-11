@@ -7,81 +7,73 @@ public struct ColorWell: View {
     private let colors: [Binding<BaseKit.Color>]
     private let supportsOpacity: Bool
     @State private var isPresenting = false
+    private let onBeginEditing: () -> Void
+    private let onEndEditing: () -> Void
     
     public init<C: RandomAccessCollection & Sendable>(
         _ title: String,
         sources: C,
         color: KeyPath<C.Element, Binding<BaseKit.Color>> & Sendable,
-        supportsOpacity: Bool = true
+        supportsOpacity: Bool = true,
+        onBeginEditing: @escaping () -> Void = {},
+        onEndEditing: @escaping () -> Void = {}
     ) {
         self.title = title
         self.colors = sources.map { $0[keyPath: color] }
         self.supportsOpacity = supportsOpacity
+        self.onBeginEditing = onBeginEditing
+        self.onEndEditing = onEndEditing
     }
     
-    public init(_ title: String, color: Binding<BaseKit.Color>, supportsOpacity: Bool = true) {
+    public init(
+        _ title: String,
+        color: Binding<BaseKit.Color>,
+        supportsOpacity: Bool = true,
+        onBeginEditing: @escaping () -> Void = {},
+        onEndEditing: @escaping () -> Void = {}
+    ) {
         self.title = title
         self.colors = [color]
         self.supportsOpacity = supportsOpacity
+        self.onBeginEditing = onBeginEditing
+        self.onEndEditing = onEndEditing
     }
     
     public var body: some View {
-        if let color = colors.only {
-            ColorPicker(
-                title,
-                selection: Binding<SwiftUI.Color>(
-                    get: {
-                        SwiftUI.Color(
-                            red: color.wrappedValue.red,
-                            green: color.wrappedValue.green,
-                            blue: color.wrappedValue.blue,
-                            opacity: color.wrappedValue.alpha
-                        )
-                    },
-                    set: { newColor in
-                        let resolvedColor = newColor.resolve(in: environment)
-                        color.wrappedValue = BaseKit.Color(
-                            red: Double(resolvedColor.red),
-                            green: Double(resolvedColor.green),
-                            blue: Double(resolvedColor.blue),
-                            alpha: Double(resolvedColor.opacity)
-                        )
-                    }
-                ),
-                supportsOpacity: supportsOpacity
-            )
-        } else {
-            HStack {
-                Text(title)
-                
-                #if os(iOS)
-                Spacer()
-                #endif
-                
-                Button(action: {
-                    isPresenting.toggle()
-                }) {
+        HStack {
+            Text(title)
+            
+            #if os(iOS)
+            Spacer()
+            #endif
+            
+            Button(action: {
+                isPresenting.toggle()
+            }) {
 #if os(macOS)
-                    MulticolorView(
-                        colors: colors.map { $0.wrappedValue
-                        },
-                        width: 36,
-                        height: 16)
-                    .clipShape(RoundedRectangle(cornerRadius: 2))
+                MulticolorView(
+                    colors: colors.map { $0.wrappedValue },
+                    width: 36,
+                    height: 16)
+                .clipShape(RoundedRectangle(cornerRadius: 2))
 
 #else
-                    MulticolorView(
-                        colors: colors.map { $0.wrappedValue
-                        },
-                        width: 26,
-                        height: 26)
-                    .clipShape(Circle())
+                MulticolorView(
+                    colors: colors.map { $0.wrappedValue
+                    },
+                    width: 26,
+                    height: 26)
+                .clipShape(Circle())
 #endif
-                }
-                .buttonStyle(ColorWellButtonStyle())
-                .focusEffectDisabled()
-                .presentColorPicker(isPresented: $isPresenting, color: presentedColor)
             }
+            .buttonStyle(ColorWellButtonStyle())
+            .focusEffectDisabled()
+            .presentColorPicker(
+                isPresented: $isPresenting,
+                color: presentedColor,
+                onBeginEditing: onBeginEditing,
+                onEndEditing: onEndEditing
+            )
         }
     }
 }
