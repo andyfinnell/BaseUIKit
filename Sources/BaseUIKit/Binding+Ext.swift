@@ -47,3 +47,27 @@ public extension Binding where Value == Double {
         })
     }
 }
+
+public extension Binding where Value == Angle {
+    init<C: RandomAccessCollection & Sendable>(
+        sources: C,
+        value: KeyPath<C.Element, Binding<Angle>> & Sendable
+    ) {
+        self.init(get: {
+            sources.reduce(Angle?.none) { sum, element in
+                let elementValue = element[keyPath: value].wrappedValue
+                if sum == nil {
+                    return elementValue
+                } else if let sum, sum == elementValue {
+                    return sum
+                } else {
+                    return Angle.zero
+                }
+            } ?? Angle.zero
+        }, set: { newValue, transaction in
+            for element in sources {
+                element[keyPath: value].wrappedValue = newValue
+            }
+        })
+    }
+}
