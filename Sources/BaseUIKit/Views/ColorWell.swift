@@ -129,8 +129,8 @@ struct ColorWellBorder: View {
             )
     }
     
-    private func stop(_ location: CGFloat) -> Gradient.Stop {
-        Gradient.Stop(color: Color(hue: 1.0 - location, saturation: 1.0, brightness: 1.0), location: location)
+    private func stop(_ location: CGFloat) -> SwiftUI.Gradient.Stop {
+        SwiftUI.Gradient.Stop(color: Color(hue: 1.0 - location, saturation: 1.0, brightness: 1.0), location: location)
     }
 }
 
