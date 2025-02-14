@@ -1,54 +1,38 @@
 import SwiftUI
 
-public struct FieldParserError: Error {
-    public let message: String
-    
-    public init(message: String) {
-        self.message = message
-    }
-}
-
-public protocol FieldParser<Value> {
-    associatedtype Value: Equatable
-    
-    static func parseValue(_ text: String) -> Result<Value, FieldParserError>
-    static func formatValue(_ value: Value) -> String
-    static func hasChanged(_ old: Value, _ new: Value) -> Bool
-    
-    static func multiselectBinding<C: RandomAccessCollection & Sendable>(
-        sources: C,
-        value: KeyPath<C.Element, Binding<Value>> & Sendable
-    ) -> Binding<Value>
-}
-
-public struct ValueField<Parser: FieldParser>: View {
+public struct ValueStepperField<Parser: SliderFieldParser>: View {
     private let title: String
     private let value: Binding<Parser.Value>
+    private let step: Double
     private let onBeginEditing: () -> Void
     private let onEndEditing: () -> Void
     @State private var errorMessage: String?
     @State private var text: String = ""
+    @State private var number: Double = 0.0
     @State private var isTextEditing = false
     @FocusState private var isFocused: Bool
 
     public init(
         _ title: String,
         value: Binding<Parser.Value>,
+        step: Double,
         errorMessage: String? = nil,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.title = title
         self.value = value
-        self.errorMessage = errorMessage
+        self.step = step
         self.onBeginEditing = onBeginEditing
         self.onEndEditing = onEndEditing
+        self.errorMessage = errorMessage
     }
     
     public init<C: RandomAccessCollection & Sendable>(
         _ title: String,
         sources: C,
         value: KeyPath<C.Element, Binding<Parser.Value>> & Sendable,
+        step: Double,
         errorMessage: String? = nil,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
@@ -56,6 +40,7 @@ public struct ValueField<Parser: FieldParser>: View {
         self.init(
             title,
             value: Parser.multiselectBinding(sources: sources, value: value),
+            step: step,
             errorMessage: errorMessage,
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing
@@ -64,29 +49,46 @@ public struct ValueField<Parser: FieldParser>: View {
 
     public var body: some View {
         VStack {
-            TextField(
-                text: $text,
-                prompt: Text(title),
-                label: {
-                    Text(title)
-                        .multilineTextAlignment(.trailing)
-                }
-            )
-            .focused($isFocused)
-            .onSubmit {
-                endTextEditingIfNecessary()
-            }
-            #if os(macOS)
-            .textFieldStyle(.squareBorder)
-            #endif
-            #if os(iOS)
-            .textFieldStyle(.roundedBorder)
-            .keyboardType(.decimalPad)
-            #endif
-            .autocorrectionDisabled(true)
-            .multilineTextAlignment(.trailing)
-            .frame(idealWidth: 120, maxWidth: 120)
+                Stepper(
+                    value: $number,
+                    step: step,
+                    label: {
+                        TextField(
+                            text: $text,
+                            prompt: Text(title),
+                            label: {
+                                Text(title)
+                                    .multilineTextAlignment(.trailing)
+                            }
+                        )
+                        .focused($isFocused)
+                        .onSubmit {
+                            endTextEditingIfNecessary()
+                        }
+        #if os(macOS)
+                        .textFieldStyle(.squareBorder)
+                        .frame(width: 50)
+        #endif
+        #if os(iOS)
+                        .textFieldStyle(.roundedBorder)
+                        .keyboardType(.decimalPad)
+                        .frame(width: 60)
+        #endif
+                        .autocorrectionDisabled(true)
+                        .multilineTextAlignment(.leading)
+                        .labelsHidden()
 
+                    },
+                    onEditingChanged: { isEditing in
+                        if isEditing {
+                            onBeginEditing()
+                        } else {
+                            onEndEditing()
+                        }
+                    }
+                )
+                .fixedSize()
+            
             if let errorMessage {
                 Text(errorMessage)
                     .font(.footnote)
@@ -95,6 +97,7 @@ public struct ValueField<Parser: FieldParser>: View {
         }
         .onChange(of: value.wrappedValue, initial: true) { oldValue, newValue in
             text = Parser.formatValue(newValue)
+            number = Parser.doubleValue(newValue)
         }
         .onChange(of: text) { oldValue, newValue in
             guard newValue != oldValue else {
@@ -112,6 +115,17 @@ public struct ValueField<Parser: FieldParser>: View {
                 errorMessage = error.message
             }
         }
+        .onChange(of: number) { oldValue, newValue in
+            guard !newValue.isClose(to: oldValue, threshold: 1e-6) else {
+                return
+            }
+            
+            let parsedValue = Parser.fromDoubleValue(newValue, existing: value.wrappedValue)
+            if Parser.hasChanged(value.wrappedValue, parsedValue) {
+                value.wrappedValue = parsedValue
+            }
+            text = Parser.formatValue(parsedValue)
+        }
         .onChange(of: isFocused) { oldValue, newValue in
             guard newValue != oldValue else {
                 return
@@ -123,7 +137,7 @@ public struct ValueField<Parser: FieldParser>: View {
     }
 }
 
-private extension ValueField {
+private extension ValueStepperField {
     func beginTextEditingIfNecessary() {
         guard isFocused && !isTextEditing else {
             return

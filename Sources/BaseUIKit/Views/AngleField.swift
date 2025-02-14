@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import BaseKit
 
 public struct AngleFieldParser: FieldParser {
     private static let numberFormater: NumberFormatter = {
@@ -12,23 +13,27 @@ public struct AngleFieldParser: FieldParser {
         return formatter
     }()
     
-    public static func parseValue(_ text: String) -> Result<Angle, FieldParserError> {
+    public static func parseValue(_ text: String) -> Result<BaseKit.Angle, FieldParserError> {
         guard let parsedNumber = numberFormater.number(from: text) else {
             return Result.failure(FieldParserError(message: "Invalid angle"))
         }
         let number = parsedNumber.doubleValue
-        return Result.success(Angle(degrees: number))
+        return Result.success(BaseKit.Angle(degrees: number))
     }
     
-    public static func formatValue(_ value: Angle) -> String {
+    public static func formatValue(_ value: BaseKit.Angle) -> String {
         numberFormater.string(for: value.degrees) ?? ""
+    }
+    
+    public static func hasChanged(_ old: BaseKit.Angle, _ new: BaseKit.Angle) -> Bool {
+        old != new
     }
     
     public static func multiselectBinding<C: RandomAccessCollection & Sendable>(
         sources: C,
-        value: KeyPath<C.Element, Binding<Angle>> & Sendable
-    ) -> Binding<Angle> {
-        Binding<Angle>(sources: sources, value: value)
+        value: KeyPath<C.Element, Binding<BaseKit.Angle>> & Sendable
+    ) -> Binding<BaseKit.Angle> {
+        Binding<BaseKit.Angle>(sources: sources, value: value)
     }
 }
 
@@ -114,7 +119,7 @@ public struct AngleField: View {
                         onEndEditing: onEndEditing,
                         onChange: { newValue in
                             let parsedValue = newValue
-                            if value.wrappedValue != parsedValue {
+                            if AngleFieldParser.hasChanged(value.wrappedValue, parsedValue) {
                                 value.wrappedValue = parsedValue
                             }
                         },
@@ -141,7 +146,7 @@ public struct AngleField: View {
             
             switch AngleFieldParser.parseValue(newValue) {
             case let .success(newValue):
-                if value.wrappedValue != newValue {
+                if AngleFieldParser.hasChanged(value.wrappedValue, newValue) {
                     beginTextEditingIfNecessary()
                     value.wrappedValue = newValue
                 }
@@ -180,12 +185,12 @@ private extension AngleField {
 }
 
 struct PopOverAngleDial: View {
-    @State var angle: Angle
+    @State var angle: BaseKit.Angle
     @Binding var text: String
     let onBeginEditing: () -> Void
     let onEndEditing: () -> Void
-    let onChange: (Angle) -> Void
-    let toText: (Angle) -> String
+    let onChange: (BaseKit.Angle) -> Void
+    let toText: (BaseKit.Angle) -> String
     
     var body: some View {
 #if os(macOS)
@@ -194,7 +199,6 @@ struct PopOverAngleDial: View {
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing
         )
-        .padding()
         .onChange(of: angle) { oldValue, newValue in
             guard newValue != oldValue else {
                 return
@@ -210,7 +214,6 @@ struct PopOverAngleDial: View {
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing
         )
-        .padding()
         .onChange(of: angle) { oldValue, newValue in
             guard newValue != oldValue else {
                 return
@@ -224,7 +227,7 @@ struct PopOverAngleDial: View {
 }
 
 struct AngleFieldPreview: View {
-    @State var angle: Angle = .init(degrees: 90)
+    @State var angle: BaseKit.Angle = .init(degrees: 90)
     
     var body: some View {
         AngleField("Angle", value: $angle)

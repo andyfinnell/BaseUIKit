@@ -19,6 +19,10 @@ public struct NumericFieldParser: SliderFieldParser {
         numberFormater.string(for: value) ?? ""
     }
     
+    public static func hasChanged(_ old: Double, _ new: Double) -> Bool {
+        !old.isClose(to: new, threshold: 1e-6)
+    }
+    
     public static func multiselectBinding<C: RandomAccessCollection & Sendable>(
         sources: C,
         value: KeyPath<C.Element, Binding<Double>> & Sendable
@@ -36,3 +40,25 @@ public struct NumericFieldParser: SliderFieldParser {
 }
 
 public typealias NumericField = ValueField<NumericFieldParser>
+public typealias NumericStepperField = ValueStepperField<NumericFieldParser>
+
+struct PreviewNumericField: View {
+    @State private var x: Double = 0.0
+    
+    var body: some View {
+        NumericStepperField("X", value: $x, step: 0.1)
+    }
+}
+
+#Preview {
+    VStack {
+        HStack {
+            PreviewNumericField()
+                .padding()
+         
+            Spacer()
+        }
+        
+        Spacer()
+    }
+}

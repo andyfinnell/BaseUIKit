@@ -1,51 +1,40 @@
 import SwiftUI
+import BaseKit
 
 @MainActor
 public struct AnchorView: View {
-    public enum Anchor: Hashable, Sendable {
-        case topLeft
-        case top
-        case topRight
-        case middleLeft
-        case middle
-        case middleRight
-        case bottomLeft
-        case bottom
-        case bottomRight
-    }
+    private let anchor: Binding<BaseKit.AnchorPoint>
     
-    let anchor: Binding<Anchor>
-    
-    public init(_ anchor: Binding<Anchor>) {
+    public init(_ anchor: Binding<BaseKit.AnchorPoint>) {
         self.anchor = anchor
     }
     
     public var body: some View {
         Grid {
             GridRow {
-                AnchorButton(anchor: anchor, value: .topLeft)
-                AnchorButton(anchor: anchor, value: .top)
-                AnchorButton(anchor: anchor, value: .topRight)
+                AnchorRadioButton(anchor: anchor, value: .topLeft)
+                AnchorRadioButton(anchor: anchor, value: .topCenter)
+                AnchorRadioButton(anchor: anchor, value: .topRight)
             }
 
             GridRow {
-                AnchorButton(anchor: anchor, value: .middleLeft)
-                AnchorButton(anchor: anchor, value: .middle)
-                AnchorButton(anchor: anchor, value: .middleRight)
+                AnchorRadioButton(anchor: anchor, value: .centerLeft)
+                AnchorRadioButton(anchor: anchor, value: .center)
+                AnchorRadioButton(anchor: anchor, value: .centerRight)
             }
 
             GridRow {
-                AnchorButton(anchor: anchor, value: .bottomLeft)
-                AnchorButton(anchor: anchor, value: .bottom)
-                AnchorButton(anchor: anchor, value: .bottomRight)
+                AnchorRadioButton(anchor: anchor, value: .bottomLeft)
+                AnchorRadioButton(anchor: anchor, value: .bottomCenter)
+                AnchorRadioButton(anchor: anchor, value: .bottomRight)
             }
         }
     }
 }
 
-private struct AnchorButton: View {
-    var anchor: Binding<AnchorView.Anchor>
-    let value: AnchorView.Anchor
+private struct AnchorRadioButton: View {
+    var anchor: Binding<BaseKit.AnchorPoint>
+    let value: BaseKit.AnchorPoint
     
     var body: some View {
         Button {
@@ -62,19 +51,19 @@ private struct AnchorButton: View {
         switch value {
         case .topLeft:
             "top left"
-        case .top:
+        case .topCenter:
             "top"
         case .topRight:
             "top right"
-        case .middleLeft:
+        case .centerLeft:
             "middle left"
-        case .middle:
+        case .center:
             "middle"
-        case .middleRight:
+        case .centerRight:
             "middle right"
         case .bottomLeft:
             "bottom left"
-        case .bottom:
+        case .bottomCenter:
             "bottom"
         case .bottomRight:
             "bottom right"
@@ -83,7 +72,7 @@ private struct AnchorButton: View {
 }
 
 struct TestAnchorView: View {
-    @State var anchor: AnchorView.Anchor = .middle
+    @State var anchor: BaseKit.AnchorPoint = .center
     
     var body: some View {
         AnchorView($anchor)

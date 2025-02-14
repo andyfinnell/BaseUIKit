@@ -21,13 +21,15 @@ final class CanvasPath<ID: Hashable & Sendable> {
             }
         }
     }
+    
     var transform: Transform {
         didSet {
             if oldValue != transform {
-                invalidate()
+                updateRenderedBezier()
             }
         }
     }
+    
     var opacity: Double {
         didSet {
             if oldValue != opacity {
@@ -35,6 +37,7 @@ final class CanvasPath<ID: Hashable & Sendable> {
             }
         }
     }
+    
     var blendMode: BlendMode {
         didSet {
             if oldValue != blendMode {
@@ -42,6 +45,7 @@ final class CanvasPath<ID: Hashable & Sendable> {
             }
         }
     }
+    
     var isVisible: Bool {
         didSet {
             if oldValue != isVisible {
@@ -49,6 +53,7 @@ final class CanvasPath<ID: Hashable & Sendable> {
             }
         }
     }
+    
     var decorations: [Decoration] {
         didSet {
             if oldValue != decorations {
@@ -56,6 +61,7 @@ final class CanvasPath<ID: Hashable & Sendable> {
             }
         }
     }
+    
     var bezier: BezierPath {
         didSet {
             if oldValue != bezier {
@@ -64,6 +70,8 @@ final class CanvasPath<ID: Hashable & Sendable> {
         }
     }
 
+    private var renderedBezier: BezierPath
+    
     init(layer: PathLayer<ID>) {
         self.layer = .path(layer)
         self.id = layer.id
@@ -74,6 +82,8 @@ final class CanvasPath<ID: Hashable & Sendable> {
         self.isVisible = layer.isVisible
         self.decorations = layer.decorations
         self.bezier = layer.bezier
+        self.renderedBezier = layer.bezier
+        renderedBezier.transform(layer.transform)
     }
     
 }
@@ -88,7 +98,7 @@ extension CanvasPath: CanvasObjectDrawable {
     }
     
     var structureBounds: CGRect {
-        bezier.cgPath.boundingBoxOfPath
+        renderedBezier.cgPath.boundingBoxOfPath
     }
     
     func drawSelf(_ rect: CGRect, into context: CGContext) {
@@ -99,24 +109,24 @@ extension CanvasPath: CanvasObjectDrawable {
     }
     
     func hitTest(_ location: CGPoint) -> Bool {
-        if hasFill && bezier.cgPath.contains(location) {
+        if hasFill && renderedBezier.cgPath.contains(location) {
             return true
         } else {
             let width = strokeWidth
-            let distance = bezier.distance(to: Point(location))
+            let distance = renderedBezier.distance(to: Point(location))
             return distance <= width
         }
     }
     
     func intersects(_ rect: CGRect) -> Bool {
-        bezier.cgPath.intersects(CGPath(rect: rect, transform: nil))
+        renderedBezier.cgPath.intersects(CGPath(rect: rect, transform: nil))
     }
     
     func contained(by rect: CGRect) -> Bool {
-        rect.contains(bezier.cgPath.boundingBoxOfPath)
+        rect.contains(renderedBezier.cgPath.boundingBoxOfPath)
     }
 
-    var structurePath: BezierPath { bezier }
+    var structurePath: BezierPath { renderedBezier }
 }
 
 private extension CanvasPath {
@@ -154,9 +164,17 @@ private extension CanvasPath {
         self.blendMode = layer.blendMode
         self.decorations = layer.decorations
         self.bezier = layer.bezier
+        updateRenderedBezier()
     }
 
+    func updateRenderedBezier() {
+        invalidate() // old position
+        renderedBezier = bezier
+        renderedBezier.transform(transform)
+        invalidate() // new position
+    }
+    
     var quickGlobalEffectiveBounds: CGRect {
-        transform.apply(to: decorations.effectiveBounds(for: bezier.cgQuickBounds))
+        decorations.effectiveBounds(for: renderedBezier.cgQuickBounds)
     }
 }

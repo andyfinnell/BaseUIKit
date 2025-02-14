@@ -1,4 +1,5 @@
 import SwiftUI
+import BaseKit
 
 public extension View {
     func formFieldValue() -> some View {
@@ -54,7 +55,7 @@ struct PreviewField: View {
 }
 
 struct PreviewForm: View {
-    @State private var anchor: AnchorView.Anchor = .middle
+    @State private var anchor: BaseKit.AnchorPoint = .center
     @State private var keepAspectRatio: Bool = true
     @State private var width: PreviewLength = .init(value: 500, units: .px)
     @State private var height: PreviewLength = .init(value: 500, units: .px)

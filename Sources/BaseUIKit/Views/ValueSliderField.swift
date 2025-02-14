@@ -113,7 +113,7 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
             
             switch Parser.parseValue(newValue) {
             case let .success(newValue):
-                if value.wrappedValue != newValue {
+                if Parser.hasChanged(value.wrappedValue, newValue) {
                     beginTextEditingIfNecessary()
                     value.wrappedValue = newValue
                 }
@@ -123,12 +123,12 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
             }
         }
         .onChange(of: number) { oldValue, newValue in
-            guard newValue != oldValue else {
+            guard !newValue.isClose(to: oldValue, threshold: 1e-6) else {
                 return
             }
             
             let parsedValue = Parser.fromDoubleValue(newValue, existing: value.wrappedValue)
-            if value.wrappedValue != parsedValue {
+            if Parser.hasChanged(value.wrappedValue, parsedValue) {
                 value.wrappedValue = parsedValue
             }
             text = Parser.formatValue(parsedValue)

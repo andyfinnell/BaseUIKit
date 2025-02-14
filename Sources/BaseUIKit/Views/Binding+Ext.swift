@@ -1,4 +1,5 @@
 import SwiftUI
+import BaseKit
 
 public extension Binding where Value == String {
     init<C: RandomAccessCollection & Sendable>(
@@ -48,22 +49,46 @@ public extension Binding where Value == Double {
     }
 }
 
-public extension Binding where Value == Angle {
+public extension Binding where Value == SwiftUI.Angle {
     init<C: RandomAccessCollection & Sendable>(
         sources: C,
-        value: KeyPath<C.Element, Binding<Angle>> & Sendable
+        value: KeyPath<C.Element, Binding<SwiftUI.Angle>> & Sendable
     ) {
         self.init(get: {
-            sources.reduce(Angle?.none) { sum, element in
+            sources.reduce(SwiftUI.Angle?.none) { sum, element in
                 let elementValue = element[keyPath: value].wrappedValue
                 if sum == nil {
                     return elementValue
                 } else if let sum, sum == elementValue {
                     return sum
                 } else {
-                    return Angle.zero
+                    return SwiftUI.Angle.zero
                 }
-            } ?? Angle.zero
+            } ?? SwiftUI.Angle.zero
+        }, set: { newValue, transaction in
+            for element in sources {
+                element[keyPath: value].wrappedValue = newValue
+            }
+        })
+    }
+}
+
+public extension Binding where Value == BaseKit.Angle {
+    init<C: RandomAccessCollection & Sendable>(
+        sources: C,
+        value: KeyPath<C.Element, Binding<BaseKit.Angle>> & Sendable
+    ) {
+        self.init(get: {
+            sources.reduce(BaseKit.Angle?.none) { sum, element in
+                let elementValue = element[keyPath: value].wrappedValue
+                if sum == nil {
+                    return elementValue
+                } else if let sum, sum == elementValue {
+                    return sum
+                } else {
+                    return BaseKit.Angle.zero
+                }
+            } ?? BaseKit.Angle.zero
         }, set: { newValue, transaction in
             for element in sources {
                 element[keyPath: value].wrappedValue = newValue

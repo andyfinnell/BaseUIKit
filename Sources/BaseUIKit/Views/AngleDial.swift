@@ -1,13 +1,14 @@
 import SwiftUI
+import BaseKit
 
 public struct AngleDial: View {
-    private let angle: Binding<Angle>
+    private let angle: Binding<BaseKit.Angle>
     private let onBeginEditing: () -> Void
     private let onEndEditing: () -> Void
     @State private var isDragging = false
 
     public init(
-        angle: Binding<Angle>,
+        angle: Binding<BaseKit.Angle>,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
@@ -19,32 +20,16 @@ public struct AngleDial: View {
     public var body: some View {
         DialTrackShape()
             .fill(Color.background)
-            .stroke(Color.primary)
+            .stroke(Color.primary, lineWidth: 3.0)
             .frame(width: AngleDial.size, height: AngleDial.size)
             .overlay {
-                ZStack {
-                    DialSelectionShape(angle: angle.wrappedValue)
-                        .fill(
-                            .angularGradient(
-                                colors: [
-                                    Color.white.opacity(0.9),
-                                    Color.accentColor
-                                ],
-                                center: .center,
-                                startAngle: .zero,
-                                endAngle: angle.wrappedValue
-                            )
-                        )
-                    
-                    DialKnobShape()
-                        .rotation(angle.wrappedValue, anchor: .center)
-                        .fill(Color.accentColor)
-                        .stroke(Color.primary)
-                }
-                .clipShape(DialTrackShape())
+                DialKnobShape()
+                    .rotation(angle.wrappedValue.toSwiftUI, anchor: .center)
+                    .fill(Color.accentColor)
+                    .stroke(Color.primary)
             }
             .gesture(
-                DragGesture()
+                DragGesture(minimumDistance: 3)
                     .onChanged { value in
                         onDrag(to: value.location)
                     }
@@ -59,7 +44,7 @@ public struct AngleDial: View {
 }
 
 private extension AngleDial {
-    static let size: CGFloat = 78
+    static let size: CGFloat = 48
     
     func onDrag(to location: CGPoint) {
         let wasDragging = isDragging
@@ -90,7 +75,7 @@ private extension AngleDial {
         var newAngle = vectorA.angle(between: vectorB)
         if location.y < center.y {
             // It's greater than 180º so we'll need to manually add on
-            newAngle = Angle(degrees: 360) - newAngle
+            newAngle = BaseKit.Angle(degrees: 360) - newAngle
         }
         angle.wrappedValue = newAngle
     }
@@ -98,31 +83,12 @@ private extension AngleDial {
 
 struct DialTrackShape: Shape {    
     func path(in rect: CGRect) -> Path {
-        Path(ellipseIn: rect)
-    }
-}
-
-struct DialSelectionShape: Shape {
-    let angle: Angle
-    
-    func path(in rect: CGRect) -> Path {
-        // Assume rotation around 0,0
-        let zeroPoint = CGPoint(x: rect.width, y: 0.0)
-        let middle = CGPoint(x: rect.midX, y: rect.midY)
-        let zero = CGPoint(x: middle.x + zeroPoint.x, y: middle.y + zeroPoint.y)
-        
-        var triangle = Path()
-        triangle.move(to: middle)
-        triangle.addLine(to: zero)
-        triangle.addArc(center: middle, radius: rect.width / 2.0, startAngle: .zero, endAngle: angle, clockwise: false)
-        triangle.addLine(to: middle)
-        triangle.closeSubpath()
-        return triangle
+        Path(ellipseIn: rect.insetBy(dx: 6, dy: 6))
     }
 }
 
 struct DialKnobShape: Shape {
-    private static let knobSize: CGFloat = 16.0
+    private static let knobSize: CGFloat = 12.0
     
     func path(in rect: CGRect) -> Path {
         let knobRect = CGRect(
@@ -136,13 +102,7 @@ struct DialKnobShape: Shape {
             )
         )
         
-        var triangle = Path()
-        triangle.move(to: CGPoint(x: knobRect.minX, y: knobRect.midY))
-        triangle.addLine(to: CGPoint(x: knobRect.maxX + 1, y: knobRect.minY))
-        triangle.addLine(to: CGPoint(x: knobRect.maxX + 1, y: knobRect.maxY))
-        triangle.addLine(to: CGPoint(x: knobRect.minX, y: knobRect.midY))
-        triangle.closeSubpath()
-        return triangle
+        return Path(ellipseIn: knobRect)
     }
 }
 
@@ -165,13 +125,13 @@ struct Vector {
         return ax * bx + ay * by
     }
     
-    func angle(between other: Vector) -> Angle {
-        Angle(radians: acos(dotProduct(other) / (length * other.length)))
+    func angle(between other: Vector) -> BaseKit.Angle {
+        BaseKit.Angle(radians: acos(dotProduct(other) / (length * other.length)))
     }
 }
 
 struct AngleDialPreview: View {
-    @State var angle: Angle = .init(degrees: 90)
+    @State var angle: BaseKit.Angle = .init(degrees: 90)
     
     var body: some View {
         AngleDial(angle: $angle)

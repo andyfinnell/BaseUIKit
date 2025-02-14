@@ -20,6 +20,10 @@ public struct OpacityFieldParser: SliderFieldParser {
         numberFormater.string(for: value) ?? "0"
     }
     
+    public static func hasChanged(_ old: Double, _ new: Double) -> Bool {
+        !old.isClose(to: new, threshold: 1e-6)
+    }
+
     public static func multiselectBinding<C: RandomAccessCollection & Sendable>(
         sources: C,
         value: KeyPath<C.Element, Binding<Double>> & Sendable

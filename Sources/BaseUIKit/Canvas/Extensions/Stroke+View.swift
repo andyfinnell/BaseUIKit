@@ -22,6 +22,6 @@ public extension Stroke {
             width *= miterLimit
             height *= miterLimit
         }
-        return rect.insetBy(dx: -width, dy: -height)
+        return rect.insetBy(dx: -ceil(width), dy: -ceil(height))
     }
 }
