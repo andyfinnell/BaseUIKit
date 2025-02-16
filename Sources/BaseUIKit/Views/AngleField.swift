@@ -39,7 +39,8 @@ public struct AngleFieldParser: FieldParser {
 
 public struct AngleField: View {
     private let title: String
-    private let value: Binding<AngleFieldParser.Value>
+    private let value: AngleFieldParser.Value
+    private let onChange: (AngleFieldParser.Value) -> Void
     private let onBeginEditing: () -> Void
     private let onEndEditing: () -> Void
     @State private var text: String = ""
@@ -50,33 +51,35 @@ public struct AngleField: View {
     
     public init(
         _ title: String,
-        value: Binding<AngleFieldParser.Value>,
+        value: AngleFieldParser.Value,
+        onChange: @escaping (AngleFieldParser.Value) -> Void,
         errorMessage: String? = nil,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.title = title
         self.value = value
+        self.onChange = onChange
         self.onBeginEditing = onBeginEditing
         self.onEndEditing = onEndEditing
     }
 
-    public init<C: RandomAccessCollection & Sendable>(
-        _ title: String,
-        sources: C,
-        value: KeyPath<C.Element, Binding<AngleFieldParser.Value>> & Sendable,
-        errorMessage: String? = nil,
-        onBeginEditing: @escaping () -> Void = {},
-        onEndEditing: @escaping () -> Void = {}
-    ) {
-        self.init(
-            title,
-            value: AngleFieldParser.multiselectBinding(sources: sources, value: value),
-            errorMessage: errorMessage,
-            onBeginEditing: onBeginEditing,
-            onEndEditing: onEndEditing
-        )
-    }
+//    public init<C: RandomAccessCollection & Sendable>(
+//        _ title: String,
+//        sources: C,
+//        value: KeyPath<C.Element, Binding<AngleFieldParser.Value>> & Sendable,
+//        errorMessage: String? = nil,
+//        onBeginEditing: @escaping () -> Void = {},
+//        onEndEditing: @escaping () -> Void = {}
+//    ) {
+//        self.init(
+//            title,
+//            value: AngleFieldParser.multiselectBinding(sources: sources, value: value),
+//            errorMessage: errorMessage,
+//            onBeginEditing: onBeginEditing,
+//            onEndEditing: onEndEditing
+//        )
+//    }
 
     public var body: some View {
         VStack {
@@ -113,18 +116,13 @@ public struct AngleField: View {
                 })
                 .popover(isPresented: $isShowing) {
                     PopOverAngleDial(
-                        angle: value.wrappedValue,
-                        text: $text,
+                        angle: value,
                         onBeginEditing: onBeginEditing,
                         onEndEditing: onEndEditing,
                         onChange: { newValue in
-                            let parsedValue = newValue
-                            if AngleFieldParser.hasChanged(value.wrappedValue, parsedValue) {
-                                value.wrappedValue = parsedValue
+                            if AngleFieldParser.hasChanged(value, newValue) {
+                                onChange(newValue)
                             }
-                        },
-                        toText: { newValue in
-                            AngleFieldParser.formatValue(newValue)
                         }
                     )
                 }
@@ -136,7 +134,7 @@ public struct AngleField: View {
                     .foregroundStyle(Color.red)
             }
         }
-        .onChange(of: value.wrappedValue, initial: true) { oldValue, newValue in
+        .onChange(of: value, initial: true) { oldValue, newValue in
             text = AngleFieldParser.formatValue(newValue)
         }
         .onChange(of: text) { oldValue, newValue in
@@ -146,9 +144,9 @@ public struct AngleField: View {
             
             switch AngleFieldParser.parseValue(newValue) {
             case let .success(newValue):
-                if AngleFieldParser.hasChanged(value.wrappedValue, newValue) {
+                if AngleFieldParser.hasChanged(value, newValue) {
                     beginTextEditingIfNecessary()
-                    value.wrappedValue = newValue
+                    onChange(newValue)
                 }
                 errorMessage = nil
             case let .failure(error):
@@ -185,43 +183,27 @@ private extension AngleField {
 }
 
 struct PopOverAngleDial: View {
-    @State var angle: BaseKit.Angle
-    @Binding var text: String
+    let angle: BaseKit.Angle
     let onBeginEditing: () -> Void
     let onEndEditing: () -> Void
     let onChange: (BaseKit.Angle) -> Void
-    let toText: (BaseKit.Angle) -> String
     
     var body: some View {
 #if os(macOS)
         AngleDial(
-            angle: $angle,
+            angle: angle,
+            onChange: onChange,
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing
         )
-        .onChange(of: angle) { oldValue, newValue in
-            guard newValue != oldValue else {
-                return
-            }
-            
-            onChange(newValue)
-            text = toText(newValue)
-        }
 #endif
 #if os(iOS)
         AngleDial(
-            angle: $angle,
+            angle: angle,
+            onChange: onChange,
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing
         )
-        .onChange(of: angle) { oldValue, newValue in
-            guard newValue != oldValue else {
-                return
-            }
-            
-            onChange(newValue)
-            text = toText(newValue)
-        }
 #endif
     }
 }
@@ -230,7 +212,7 @@ struct AngleFieldPreview: View {
     @State var angle: BaseKit.Angle = .init(degrees: 90)
     
     var body: some View {
-        AngleField("Angle", value: $angle)
+        AngleField("Angle", value: angle, onChange: { angle = $0 })
     }
 }
 

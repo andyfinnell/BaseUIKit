@@ -2,17 +2,20 @@ import SwiftUI
 import BaseKit
 
 public struct AngleDial: View {
-    private let angle: Binding<BaseKit.Angle>
+    private let angle: BaseKit.Angle
+    private let onChange: (BaseKit.Angle) -> Void
     private let onBeginEditing: () -> Void
     private let onEndEditing: () -> Void
     @State private var isDragging = false
 
     public init(
-        angle: Binding<BaseKit.Angle>,
-        onBeginEditing: @escaping () -> Void = {},
-        onEndEditing: @escaping () -> Void = {}
+        angle: BaseKit.Angle,
+        onChange: @escaping (BaseKit.Angle) -> Void,
+        onBeginEditing: @escaping () -> Void,
+        onEndEditing: @escaping () -> Void
     ) {
         self.angle = angle
+        self.onChange = onChange
         self.onBeginEditing = onBeginEditing
         self.onEndEditing = onEndEditing
     }
@@ -24,7 +27,7 @@ public struct AngleDial: View {
             .frame(width: AngleDial.size, height: AngleDial.size)
             .overlay {
                 DialKnobShape()
-                    .rotation(angle.wrappedValue.toSwiftUI, anchor: .center)
+                    .rotation(angle.toSwiftUI, anchor: .center)
                     .fill(Color.accentColor)
                     .stroke(Color.primary)
             }
@@ -77,7 +80,7 @@ private extension AngleDial {
             // It's greater than 180º so we'll need to manually add on
             newAngle = BaseKit.Angle(degrees: 360) - newAngle
         }
-        angle.wrappedValue = newAngle
+        onChange(newAngle)
     }
 }
 
@@ -127,20 +130,5 @@ struct Vector {
     
     func angle(between other: Vector) -> BaseKit.Angle {
         BaseKit.Angle(radians: acos(dotProduct(other) / (length * other.length)))
-    }
-}
-
-struct AngleDialPreview: View {
-    @State var angle: BaseKit.Angle = .init(degrees: 90)
-    
-    var body: some View {
-        AngleDial(angle: $angle)
-    }
-}
-
-#Preview {
-    VStack {
-        AngleDialPreview()
-            .padding()
     }
 }
