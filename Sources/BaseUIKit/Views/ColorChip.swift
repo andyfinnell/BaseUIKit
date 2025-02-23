@@ -2,7 +2,8 @@ import SwiftUI
 import BaseKit
 
 struct ColorChip: View {
-    @Binding var color: BaseKit.Color
+    let color: BaseKit.Color
+    let onChange: (BaseKit.Color) -> Void
     @State private var isPresenting = false
     let onBeginEditing: () -> Void
     let onEndEditing: () -> Void
@@ -18,7 +19,8 @@ struct ColorChip: View {
                 .overlay(Rectangle().stroke(Color.gray, style: StrokeStyle(lineWidth: 1)))
                 .presentColorPicker(
                     isPresented: $isPresenting,
-                    color: $color,
+                    color: color,
+                    onChange: onChange,
                     onBeginEditing: onBeginEditing,
                     onEndEditing: onEndEditing
                 )
@@ -60,13 +62,15 @@ import AppKit
 extension View {
     func presentColorPicker(
         isPresented: Binding<Bool>,
-        color: Binding<BaseKit.Color>,
+        color: BaseKit.Color,
+        onChange: @escaping (BaseKit.Color) -> Void,
         onBeginEditing: @escaping () -> Void,
         onEndEditing: @escaping () -> Void
     ) -> some View {
         modifier(
             ColorPanelModifier(
                 color: color,
+                onChange: onChange,
                 isPresented: isPresented,
                 onBeginEditing: onBeginEditing,
                 onEndEditing: onEndEditing
@@ -77,7 +81,8 @@ extension View {
 
 struct ColorPanelModifier: ViewModifier {
     @State private var coordinator = ColorPanelCoordinator()
-    @Binding var color: BaseKit.Color
+    let color: BaseKit.Color
+    let onChange: (BaseKit.Color) -> Void
     @Binding var isPresented: Bool
     let onBeginEditing: () -> Void
     let onEndEditing: () -> Void
@@ -96,9 +101,7 @@ struct ColorPanelModifier: ViewModifier {
                             onEndEditing()
                             isPresented = false
                         },
-                        onChange: { newColor in
-                            color = newColor
-                        }
+                        onChange: onChange
                     )
                 }
             }
@@ -169,13 +172,15 @@ import UIKit
 extension View {
     func presentColorPicker(
         isPresented: Binding<Bool>,
-        color: Binding<BaseKit.Color>,
+        color: BaseKit.Color,
+        onChange: @escaping (BaseKit.Color) -> Void,
         onBeginEditing: @escaping () -> Void,
         onEndEditing: @escaping () -> Void
     ) -> some View {
         modifier(
             ColorPanelModifier(
                 color: color,
+                onChange: onChange,
                 isPresented: isPresented,
                 onBeginEditing: onBeginEditing,
                 onEndEditing: onEndEditing
@@ -185,7 +190,8 @@ extension View {
 }
 
 struct ColorPanelModifier: ViewModifier {
-    @Binding var color: BaseKit.Color
+    let color: BaseKit.Color
+    let onChange: (BaseKit.Color) -> Void
     @Binding var isPresented: Bool
     let onBeginEditing: () -> Void
     let onEndEditing: () -> Void
@@ -195,9 +201,7 @@ struct ColorPanelModifier: ViewModifier {
             .popover(isPresented: $isPresented) {
                 ColorPickerViewControllerRepresentable(
                     color: color,
-                    onChange: { newColor in
-                        color = newColor
-                    },
+                    onChange: onChange,
                     onDismiss: {
                         isPresented = false
                     }
@@ -273,7 +277,11 @@ struct ColorChipPreview: View {
     @State var color = BaseKit.Color.black
     
     var body: some View {
-        ColorChip(color: $color, onBeginEditing: {}, onEndEditing: {})
+        ColorChip(
+            color: color,
+            onChange: { color = $0 },
+            onBeginEditing: {},
+            onEndEditing: {})
     }
 }
 

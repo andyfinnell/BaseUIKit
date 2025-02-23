@@ -79,7 +79,7 @@ struct PreviewForm: View {
                         
             Section("Layout") {
                 LabeledContent("Anchor") {
-                    AnchorView($anchor)
+                    AnchorView(anchor: anchor, onChange: { anchor = $0 })
                 }
             }
         }

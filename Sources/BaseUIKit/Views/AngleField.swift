@@ -35,6 +35,22 @@ public struct AngleFieldParser: FieldParser {
     ) -> Binding<BaseKit.Angle> {
         Binding<BaseKit.Angle>(sources: sources, value: value)
     }
+    
+    public static func multiselectValue<C: RandomAccessCollection & Sendable>(
+        sources: C,
+        value: KeyPath<C.Element, BaseKit.Angle> & Sendable
+    ) -> BaseKit.Angle {
+        sources.reduce(BaseKit.Angle?.none) { sum, element in
+            let elementValue = element[keyPath: value]
+            if sum == nil {
+                return elementValue
+            } else if let sum, sum == elementValue {
+                return sum
+            } else {
+                return BaseKit.Angle.zero
+            }
+        } ?? BaseKit.Angle.zero
+    }
 }
 
 public struct AngleField: View {

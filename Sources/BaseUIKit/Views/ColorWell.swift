@@ -4,7 +4,8 @@ import BaseKit
 public struct ColorWell: View {
     @Environment(\.self) private var environment
     private let title: String
-    private let colors: [Binding<BaseKit.Color>]
+    private let colors: [BaseKit.Color]
+    private let onChange: (BaseKit.Color) -> Void
     private let supportsOpacity: Bool
     @State private var isPresenting = false
     private let onBeginEditing: () -> Void
@@ -13,13 +14,15 @@ public struct ColorWell: View {
     public init<C: RandomAccessCollection & Sendable>(
         _ title: String,
         sources: C,
-        color: KeyPath<C.Element, Binding<BaseKit.Color>> & Sendable,
+        color: KeyPath<C.Element, BaseKit.Color> & Sendable,
+        onChange: @escaping (BaseKit.Color) -> Void,
         supportsOpacity: Bool = true,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.title = title
         self.colors = sources.map { $0[keyPath: color] }
+        self.onChange = onChange
         self.supportsOpacity = supportsOpacity
         self.onBeginEditing = onBeginEditing
         self.onEndEditing = onEndEditing
@@ -27,13 +30,15 @@ public struct ColorWell: View {
     
     public init(
         _ title: String,
-        color: Binding<BaseKit.Color>,
+        color: BaseKit.Color,
+        onChange: @escaping (BaseKit.Color) -> Void,
         supportsOpacity: Bool = true,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.title = title
         self.colors = [color]
+        self.onChange = onChange
         self.supportsOpacity = supportsOpacity
         self.onBeginEditing = onBeginEditing
         self.onEndEditing = onEndEditing
@@ -52,15 +57,14 @@ public struct ColorWell: View {
             }) {
 #if os(macOS)
                 MulticolorView(
-                    colors: colors.map { $0.wrappedValue },
+                    colors: colors.map { $0 },
                     width: 36,
                     height: 16)
                 .clipShape(RoundedRectangle(cornerRadius: 2))
 
 #else
                 MulticolorView(
-                    colors: colors.map { $0.wrappedValue
-                    },
+                    colors: colors.map { $0 },
                     width: 26,
                     height: 26)
                 .clipShape(Circle())
@@ -71,6 +75,7 @@ public struct ColorWell: View {
             .presentColorPicker(
                 isPresented: $isPresenting,
                 color: presentedColor,
+                onChange: onChange,
                 onBeginEditing: onBeginEditing,
                 onEndEditing: onEndEditing
             )
@@ -79,17 +84,8 @@ public struct ColorWell: View {
 }
 
 private extension ColorWell {
-    var presentedColor: Binding<BaseKit.Color> {
-        Binding<BaseKit.Color>(
-            get: {
-                colors.first?.wrappedValue ?? BaseKit.Color.black
-            },
-            set: { newValue, transaction in
-                for color in colors {
-                    color.wrappedValue = newValue
-                }
-            }
-        )
+    var presentedColor: BaseKit.Color {
+        colors.first ?? BaseKit.Color.black
     }
 }
 
@@ -140,7 +136,7 @@ struct PreviewColorWell: View {
     ]
     
     var body: some View {
-        ColorWell("Color", sources: $colors, color: \.self)
+        ColorWell("Color", sources: colors, color: \.self, onChange: { colors = [$0] })
     }
 }
 
@@ -148,7 +144,7 @@ struct PreviewSingleColorWell: View {
     @State private var color = BaseKit.Color.blue
     
     var body: some View {
-        ColorWell("Color", color: $color)
+        ColorWell("Color", color: color, onChange: { color = $0 })
     }
 }
 

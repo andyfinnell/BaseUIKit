@@ -30,6 +30,22 @@ public struct NumericFieldParser: SliderFieldParser {
         Binding<Double>(sources: sources, value: value)
     }
 
+    public static func multiselectValue<C: RandomAccessCollection & Sendable>(
+        sources: C,
+        value: KeyPath<C.Element, Double> & Sendable
+    ) -> Double {
+        sources.reduce(Double?.none) { sum, element in
+            let elementValue = element[keyPath: value]
+            if sum == nil {
+                return elementValue
+            } else if let sum, sum == elementValue {
+                return sum
+            } else {
+                return Double.infinity
+            }
+        } ?? 0.0
+    }
+
     public static func doubleValue(_ value: Double) -> Double {
         value
     }
@@ -46,7 +62,7 @@ struct PreviewNumericField: View {
     @State private var x: Double = 0.0
     
     var body: some View {
-        NumericStepperField("X", value: $x, step: 0.1)
+        NumericStepperField("X", value: x, onChange: { x = $0 }, step: 0.1)
     }
 }
 

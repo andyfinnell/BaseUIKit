@@ -14,30 +14,35 @@ public struct GradientView: View {
         }
     }
     
-    private let allStops: [Binding<[Stop]>]
+    private let allStops: [[Stop]]
     @State private var width: CGFloat = 0.0
     @State private var removingStop: RemovingStop? = nil
     @State private var isDragging = false
+    private let onChange: ([Stop]) -> Void
     private let onBeginEditing: () -> Void
     private let onEndEditing: () -> Void
 
     public init(
-        stops: Binding<[Stop]>,
+        stops: [Stop],
+        onChange: @escaping ([Stop]) -> Void,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.allStops = [stops]
+        self.onChange = onChange
         self.onBeginEditing = onBeginEditing
         self.onEndEditing = onEndEditing
     }
     
     public init<C: RandomAccessCollection & Sendable>(
         sources: C,
-        stop: KeyPath<C.Element, Binding<[Stop]>> & Sendable,
+        stop: KeyPath<C.Element, [Stop]> & Sendable,
+        onChange: @escaping ([Stop]) -> Void,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
         allStops = sources.map { $0[keyPath: stop] }
+        self.onChange = onChange
         self.onBeginEditing = onBeginEditing
         self.onEndEditing = onEndEditing
     }
@@ -57,9 +62,9 @@ public struct GradientView: View {
 
 private extension GradientView {
     @ViewBuilder
-    func linearGradientView(for stops: Binding<[Stop]>) -> some View {
+    func linearGradientView(for stops: [Stop]) -> some View {
         LinearGradient(
-            stops: stops.wrappedValue.sorted(by: { $0.offset < $1.offset }).map {
+            stops: stops.sorted(by: { $0.offset < $1.offset }).map {
                 Gradient.Stop(color: $0.color.swiftUI, location: $0.offset)
             },
             startPoint: .leading,
@@ -95,24 +100,23 @@ private extension GradientView {
     }
     
     @ViewBuilder
-    func colorStop(for stop: Binding<Stop>, width: CGFloat) -> some View {
+    func colorStop(for stop: Stop, width: CGFloat) -> some View {
         ColorChip(
-            color: Binding(
-                get: {
-                    stop.wrappedValue.color
-                },
-                set: {
-                    stop.wrappedValue = Stop(id: stop.wrappedValue.id, offset: stop.wrappedValue.offset, color: $0)
-                }
-            ),
+            color: stop.color,
+            onChange: {
+                var newValue = stops
+                newValue[byID: stop.id] = Stop(id: stop.id, offset: stop.offset, color: $0)
+                onChange(newValue)
+            },
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing
         )
         .background(alignment: .top) {
-            if let removingStop, removingStop.id == stop.wrappedValue.id {
+            if let removingStop, removingStop.id == stop.id {
                 VStack {
                     ColorChip(
-                        color: Binding.constant(BaseKit.Color.black),
+                        color: BaseKit.Color.black,
+                        onChange: { _ in },
                         onBeginEditing: onBeginEditing,
                         onEndEditing: onEndEditing
                     )
@@ -147,7 +151,8 @@ private extension GradientView {
             linearGradientView(for: presentedStops[index])
             .frame(height: setOfStopsHeight)
             .onTapGesture {
-                stops.wrappedValue = presentedStops[index].wrappedValue
+                let newValue = presentedStops[index]
+                onChange(newValue)
             }
         }
     }
@@ -157,20 +162,11 @@ private extension GradientView {
         GradientView.Stop(id: UUID(), offset: 1.0, color: .black),
     ]
     
-    var stops: Binding<[Stop]> {
+    var stops: [Stop] {
         if let stop = allStops.only {
             return stop
         } else {
-            return Binding<[Stop]>(
-                get: {
-                    allStops.first?.wrappedValue ?? GradientView.defaultStops
-                },
-                set: { newValue, transaction in
-                    for stop in allStops {
-                        stop.wrappedValue = makeEquivalentStops(to: newValue, basedOn: stop.wrappedValue)
-                    }
-                }
-            )
+            return allStops.first ?? GradientView.defaultStops
         }
     }
     
@@ -178,8 +174,8 @@ private extension GradientView {
         uniqueStops.count == 1
     }
     
-    var uniqueStops: [Binding<[Stop]>] {
-        var unique = [Binding<[Stop]>]()
+    var uniqueStops: [[Stop]] {
+        var unique = [[Stop]]()
         for stop in allStops {
             let haveEquivalent = unique.contains { $0.isEquivalent(to: stop) }
             guard !haveEquivalent else {
@@ -190,7 +186,7 @@ private extension GradientView {
         return unique
     }
     
-    var presentedStops: [Binding<[Stop]>] {
+    var presentedStops: [[Stop]] {
         let unique = uniqueStops
         let max = maximumSetOfStops
         if unique.count <= max {
@@ -211,39 +207,10 @@ private extension GradientView {
     var maximumSetOfStops: Int {
         Int(floor(GradientView.totalGradientHeight / GradientView.minimumGradientHeight))
     }
-
-    func makeEquivalentStops(to newStops: [Stop], basedOn existingStops: [Stop]) -> [Stop] {
-        var equivalentStops = [Stop]()
-
-        var remainingNewStops = [Stop]()
-        var remainingExistingStops = existingStops
-        for newStop in newStops {
-            if remainingExistingStops.contains(where: { $0.id == newStop.id }) {
-                equivalentStops.append(newStop)
-                remainingExistingStops.removeAll(where: { $0.id == newStop.id })
-            } else {
-                remainingNewStops.append(newStop)
-            }
-        }
-        
-        for newStop in remainingNewStops {
-            if let nextExisting = remainingExistingStops.first {
-                remainingExistingStops.removeFirst()
-                
-                equivalentStops.append(Stop(id: nextExisting.id, offset: newStop.offset, color: newStop.color))
-            } else {
-                equivalentStops.append(Stop(id: UUID(), offset: newStop.offset, color: newStop.color))
-            }
-        }
-        
-        equivalentStops.sort { $0.offset < $1.offset }
-        
-        return equivalentStops
-    }
     
     func insertStop(at location: CGPoint, inWidth width: CGFloat) {
         let offset = clamp(location.x / width, 0.0, 1.0)
-        let stops = stops.wrappedValue.sorted(by: { $0.offset < $1.offset })
+        let stops = stops.sorted(by: { $0.offset < $1.offset })
         if let insertIndex = stops.firstIndex(where: { $0.offset > offset }) {
             let previousStop = stops.at(insertIndex - 1) ?? stops.first
             let nextStop = stops.at(insertIndex) ?? stops.last
@@ -262,7 +229,10 @@ private extension GradientView {
                 offset: offset,
                 color: newColor
             )
-            self.stops.wrappedValue.insert(newStop, at: insertIndex)
+            
+            var newStops = stops
+            newStops.insert(newStop, at: insertIndex)
+            onChange(newStops)
         } else {
             // append and just re-use the last
             let newStop = GradientView.Stop(
@@ -270,7 +240,9 @@ private extension GradientView {
                 offset: offset,
                 color: stops.last?.color ?? .black
             )
-            self.stops.wrappedValue.append(newStop)
+            var newStops = stops
+            newStops.append(newStop)
+            onChange(newStops)
         }
     }
     
@@ -279,7 +251,7 @@ private extension GradientView {
         let location: CGPoint
     }
     
-    func dragStop(_ stop: Binding<Stop>, to location: CGPoint, width: CGFloat) {
+    func dragStop(_ stop: Stop, to location: CGPoint, width: CGFloat) {
         guard isEditable(stop) else {
             return
         }
@@ -293,32 +265,39 @@ private extension GradientView {
         
         if isRemoving(location: location, width: width) {
             self.removingStop = RemovingStop(
-                id: stop.wrappedValue.id,
+                id: stop.id,
                 location: location
             )
         } else {
             self.removingStop = nil
-            stop.wrappedValue = Stop(
-                id: stop.wrappedValue.id,
+            
+            var newStops = stops
+            newStops[byID: stop.id] = Stop(
+                id: stop.id,
                 offset: clamp(location.x / width, 0.0, 1.0),
-                color: stop.wrappedValue.color
+                color: stop.color
             )
+            onChange(newStops)
         }
     }
     
-    func dragStopFinished(_ stop: Binding<Stop>, to location: CGPoint, width: CGFloat) {
+    func dragStopFinished(_ stop: Stop, to location: CGPoint, width: CGFloat) {
         guard isEditable(stop) else {
             return
         }
 
         if isRemoving(location: location, width: width) {
-            self.stops.wrappedValue.removeAll(where: { $0.id == stop.wrappedValue.id })
+            var newStops = stops
+            newStops.removeAll(where: { $0.id == stop.id })
+            onChange(newStops)
         } else {
-            stop.wrappedValue = Stop(
-                id: stop.wrappedValue.id,
+            var newStops = stops
+            newStops[byID: stop.id] = Stop(
+                id: stop.id,
                 offset: clamp(location.x / width, 0.0, 1.0),
-                color: stop.wrappedValue.color
+                color: stop.color
             )
+            onChange(newStops)
         }
         self.removingStop = nil
         isDragging = false
@@ -333,22 +312,22 @@ private extension GradientView {
         || (location.y < -halfChipSize) || (location.y > (chipSize + halfChipSize))
     }
     
-    func stopLocation(_ stop: Binding<Stop>, width: CGFloat) -> CGPoint {
-        if let removingStop, removingStop.id == stop.wrappedValue.id {
+    func stopLocation(_ stop: Stop, width: CGFloat) -> CGPoint {
+        if let removingStop, removingStop.id == stop.id {
             return removingStop.location
         } else {
             return CGPoint(
-                x: stop.wrappedValue.offset * width,
+                x: stop.offset * width,
                 y: ColorChip.centerYOffset
             )
         }
     }
     
-    func isEditable(_ stop: Binding<Stop>) -> Bool {
+    func isEditable(_ stop: Stop) -> Bool {
         // Need a minimum of two, first and last can't be moved from 0, 1
-        let sorted = stops.wrappedValue.sorted(by: { $0.offset < $1.offset })
-        let isFirst = sorted.first?.id == stop.wrappedValue.id
-        let isLast = sorted.last?.id == stop.wrappedValue.id
+        let sorted = stops.sorted(by: { $0.offset < $1.offset })
+        let isFirst = sorted.first?.id == stop.id
+        let isLast = sorted.last?.id == stop.id
         return !isFirst && !isLast
     }
 }
@@ -389,7 +368,7 @@ private struct GradientViewPreview: View {
     ]
     
     var body: some View {
-        GradientView(stops: $stops)
+        GradientView(stops: stops, onChange: { stops = $0 })
             .frame(width: 320)
     }
 }
@@ -417,7 +396,7 @@ private struct GradientViewMultiselectPreview: View {
     ]
     
     var body: some View {
-        GradientView(sources: $stops, stop: \.self)
+        GradientView(sources: stops, stop: \.self, onChange: { stops = [$0] })
             .frame(width: 320)
     }
 }
@@ -430,4 +409,36 @@ private struct GradientViewMultiselectPreview: View {
         GradientViewMultiselectPreview()
             .padding()
     }
+}
+
+public extension Array where Element == GradientView.Stop {
+    func makeEquivalentStops(basedOn existingStops: [GradientView.Stop]) -> [GradientView.Stop] {
+        var equivalentStops = [GradientView.Stop]()
+
+        var remainingNewStops = [GradientView.Stop]()
+        var remainingExistingStops = existingStops
+        for newStop in self {
+            if remainingExistingStops.contains(where: { $0.id == newStop.id }) {
+                equivalentStops.append(newStop)
+                remainingExistingStops.removeAll(where: { $0.id == newStop.id })
+            } else {
+                remainingNewStops.append(newStop)
+            }
+        }
+        
+        for newStop in remainingNewStops {
+            if let nextExisting = remainingExistingStops.first {
+                remainingExistingStops.removeFirst()
+                
+                equivalentStops.append(GradientView.Stop(id: nextExisting.id, offset: newStop.offset, color: newStop.color))
+            } else {
+                equivalentStops.append(GradientView.Stop(id: UUID(), offset: newStop.offset, color: newStop.color))
+            }
+        }
+        
+        equivalentStops.sort { $0.offset < $1.offset }
+        
+        return equivalentStops
+    }
+
 }

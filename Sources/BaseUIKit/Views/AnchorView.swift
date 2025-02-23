@@ -1,54 +1,56 @@
 import SwiftUI
 import BaseKit
 
-@MainActor
 public struct AnchorView: View {
-    private let anchor: Binding<BaseKit.AnchorPoint>
+    private let anchor: BaseKit.AnchorPoint
+    private let onChange: (BaseKit.AnchorPoint) -> Void
     
-    public init(_ anchor: Binding<BaseKit.AnchorPoint>) {
+    public init(anchor: BaseKit.AnchorPoint, onChange: @escaping (BaseKit.AnchorPoint) -> Void) {
         self.anchor = anchor
+        self.onChange = onChange
     }
     
     public var body: some View {
         Grid {
             GridRow {
-                AnchorRadioButton(anchor: anchor, value: .topLeft)
-                AnchorRadioButton(anchor: anchor, value: .topCenter)
-                AnchorRadioButton(anchor: anchor, value: .topRight)
+                AnchorRadioButton(anchor: anchor, onChange: onChange, represents: .topLeft)
+                AnchorRadioButton(anchor: anchor, onChange: onChange, represents: .topCenter)
+                AnchorRadioButton(anchor: anchor, onChange: onChange, represents: .topRight)
             }
 
             GridRow {
-                AnchorRadioButton(anchor: anchor, value: .centerLeft)
-                AnchorRadioButton(anchor: anchor, value: .center)
-                AnchorRadioButton(anchor: anchor, value: .centerRight)
+                AnchorRadioButton(anchor: anchor, onChange: onChange, represents: .centerLeft)
+                AnchorRadioButton(anchor: anchor, onChange: onChange, represents: .center)
+                AnchorRadioButton(anchor: anchor, onChange: onChange, represents: .centerRight)
             }
 
             GridRow {
-                AnchorRadioButton(anchor: anchor, value: .bottomLeft)
-                AnchorRadioButton(anchor: anchor, value: .bottomCenter)
-                AnchorRadioButton(anchor: anchor, value: .bottomRight)
+                AnchorRadioButton(anchor: anchor, onChange: onChange, represents: .bottomLeft)
+                AnchorRadioButton(anchor: anchor, onChange: onChange, represents: .bottomCenter)
+                AnchorRadioButton(anchor: anchor, onChange: onChange, represents: .bottomRight)
             }
         }
     }
 }
 
 private struct AnchorRadioButton: View {
-    var anchor: Binding<BaseKit.AnchorPoint>
-    let value: BaseKit.AnchorPoint
+    let anchor: BaseKit.AnchorPoint
+    let onChange: (BaseKit.AnchorPoint) -> Void
+    let represents: BaseKit.AnchorPoint
     
     var body: some View {
         Button {
-            anchor.wrappedValue = value
+            onChange(represents)
         } label: {
             Image(systemName: "photo")
-                .isHidden(anchor.wrappedValue != value)
+                .isHidden(anchor != represents)
         }
         .buttonStyle(.bordered)
         .accessibilityLabel(accessibilityLabel)
     }
     
     private var accessibilityLabel: String {
-        switch value {
+        switch represents {
         case .topLeft:
             "top left"
         case .topCenter:
@@ -75,7 +77,7 @@ struct TestAnchorView: View {
     @State var anchor: BaseKit.AnchorPoint = .center
     
     var body: some View {
-        AnchorView($anchor)
+        AnchorView(anchor: anchor, onChange: { anchor = $0 })
     }
 }
 

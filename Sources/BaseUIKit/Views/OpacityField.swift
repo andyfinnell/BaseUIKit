@@ -31,6 +31,22 @@ public struct OpacityFieldParser: SliderFieldParser {
         Binding<Double>(sources: sources, value: value)
     }
 
+    public static func multiselectValue<C: RandomAccessCollection & Sendable>(
+        sources: C,
+        value: KeyPath<C.Element, Double> & Sendable
+    ) -> Double {
+        sources.reduce(Double?.none) { sum, element in
+            let elementValue = element[keyPath: value]
+            if sum == nil {
+                return elementValue
+            } else if let sum, sum == elementValue {
+                return sum
+            } else {
+                return Double.infinity
+            }
+        } ?? 0.0
+    }
+
     public static func doubleValue(_ value: Double) -> Double {
         value
     }
@@ -41,28 +57,33 @@ public struct OpacityFieldParser: SliderFieldParser {
 }
 
 public struct OpacityField: View {
-    private let value: Binding<Double>
+    private let value: Double
+    private let onChange: (Double) -> Void
     private let onBeginEditing: () -> Void
     private let onEndEditing: () -> Void
 
     public init(
-        value: Binding<Double>,
+        value: Double,
+        onChange: @escaping (Double) -> Void,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.value = value
+        self.onChange = onChange
         self.onBeginEditing = onBeginEditing
         self.onEndEditing = onEndEditing
     }
 
     public init<C: RandomAccessCollection & Sendable>(
         sources: C,
-        value: KeyPath<C.Element, Binding<Double>> & Sendable,
+        value: KeyPath<C.Element, Double> & Sendable,
+        onChange: @escaping (Double) -> Void,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.init(
-            value: OpacityFieldParser.multiselectBinding(sources: sources, value: value),
+            value: OpacityFieldParser.multiselectValue(sources: sources, value: value),
+            onChange: onChange,
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing
         )
@@ -72,6 +93,7 @@ public struct OpacityField: View {
         PopOverSliderField<OpacityFieldParser>(
             "Opacity",
             value: value,
+            onChange: onChange,
             in: 0...1,
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing
@@ -83,7 +105,7 @@ private struct OpacityFieldPreview: View {
     @State private var opacity = 1.0
     
     var body: some View {
-        OpacityField(value: $opacity)
+        OpacityField(value: opacity, onChange: { opacity = $0 })
     }
 }
 

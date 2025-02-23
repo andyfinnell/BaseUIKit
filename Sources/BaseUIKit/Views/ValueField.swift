@@ -19,11 +19,17 @@ public protocol FieldParser<Value> {
         sources: C,
         value: KeyPath<C.Element, Binding<Value>> & Sendable
     ) -> Binding<Value>
+    
+    static func multiselectValue<C: RandomAccessCollection & Sendable>(
+        sources: C,
+        value: KeyPath<C.Element, Value> & Sendable
+    ) -> Value
 }
 
 public struct ValueField<Parser: FieldParser>: View {
     private let title: String
-    private let value: Binding<Parser.Value>
+    private let value: Parser.Value
+    private let onChange: (Parser.Value) -> Void
     private let onBeginEditing: () -> Void
     private let onEndEditing: () -> Void
     @State private var errorMessage: String?
@@ -33,13 +39,15 @@ public struct ValueField<Parser: FieldParser>: View {
 
     public init(
         _ title: String,
-        value: Binding<Parser.Value>,
+        value: Parser.Value,
+        onChange: @escaping (Parser.Value) -> Void,
         errorMessage: String? = nil,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.title = title
         self.value = value
+        self.onChange = onChange
         self.errorMessage = errorMessage
         self.onBeginEditing = onBeginEditing
         self.onEndEditing = onEndEditing
@@ -48,14 +56,16 @@ public struct ValueField<Parser: FieldParser>: View {
     public init<C: RandomAccessCollection & Sendable>(
         _ title: String,
         sources: C,
-        value: KeyPath<C.Element, Binding<Parser.Value>> & Sendable,
+        value: KeyPath<C.Element, Parser.Value> & Sendable,
+        onChange: @escaping (Parser.Value) -> Void,
         errorMessage: String? = nil,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.init(
             title,
-            value: Parser.multiselectBinding(sources: sources, value: value),
+            value: Parser.multiselectValue(sources: sources, value: value),
+            onChange: onChange,
             errorMessage: errorMessage,
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing
@@ -93,7 +103,7 @@ public struct ValueField<Parser: FieldParser>: View {
                     .foregroundStyle(Color.red)
             }
         }
-        .onChange(of: value.wrappedValue, initial: true) { oldValue, newValue in
+        .onChange(of: value, initial: true) { oldValue, newValue in
             text = Parser.formatValue(newValue)
         }
         .onChange(of: text) { oldValue, newValue in
@@ -103,9 +113,9 @@ public struct ValueField<Parser: FieldParser>: View {
             
             switch Parser.parseValue(newValue) {
             case let .success(newValue):
-                if Parser.hasChanged(value.wrappedValue, newValue) {
+                if Parser.hasChanged(value, newValue) {
                     beginTextEditingIfNecessary()
-                    value.wrappedValue = newValue
+                    onChange(newValue)
                 }
                 errorMessage = nil
             case let .failure(error):
