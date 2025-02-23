@@ -16,6 +16,16 @@ public struct Switch<Label: View>: View {
         self.label = label
     }
     
+    public init(
+        _ titleKey: LocalizedStringKey,
+        isOn: Bool,
+        onChange: @escaping (Bool) -> Void
+    ) where Label == Text {
+        sourceValue = [isOn]
+        self.onChange = onChange
+        self.label = { Text(titleKey) }
+    }
+
     public init<C: RandomAccessCollection>(
         sources: C,
         isOn: KeyPath<C.Element, Bool>,

@@ -29,7 +29,19 @@ public struct Chooser<Content: View, Label: View, Value: Hashable & Defaultable>
         self.content = content
         self.label = label
     }
-    
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        selection source: Value,
+        onChange: @escaping (Value) -> Void,
+        @ViewBuilder content: @escaping () -> Content
+    ) where Label == Text {
+        self.source = [source]
+        self.onChange = onChange
+        self.content = content
+        self.label = { Text(titleKey) }
+    }
+
     public init<C: RandomAccessCollection>(
         sources: C,
         selection source: KeyPath<C.Element, Value>,
