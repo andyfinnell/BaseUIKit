@@ -2,18 +2,16 @@ import SwiftUI
 
 public struct Switch<Label: View>: View {
     @State private var isOn = [false]
-    private let sourceValue: [Bool]
-    private let onChange: (Bool) -> Void
-    private let label: () -> Label
+    private let binding: SmartCollectionBind<[Bool]>
+    private let label: ViewHolder<Label>
     
     public init(
         isOn: Bool,
         onChange: @escaping (Bool) -> Void,
         @ViewBuilder label: @escaping () -> Label
     ) {
-        sourceValue = [isOn]
-        self.onChange = onChange
-        self.label = label
+        binding = SmartCollectionBind([isOn], onChange)
+        self.label = ViewHolder(label)
     }
     
     public init(
@@ -21,9 +19,8 @@ public struct Switch<Label: View>: View {
         isOn: Bool,
         onChange: @escaping (Bool) -> Void
     ) where Label == Text {
-        sourceValue = [isOn]
-        self.onChange = onChange
-        self.label = { Text(titleKey) }
+        binding = SmartCollectionBind([isOn], onChange)
+        self.label = ViewHolder({ Text(titleKey) })
     }
 
     public init<C: RandomAccessCollection>(
@@ -32,9 +29,8 @@ public struct Switch<Label: View>: View {
         onChange: @escaping (Bool) -> Void,
         @ViewBuilder label: @escaping () -> Label
     ) {
-        sourceValue = sources.map { $0[keyPath: isOn] }
-        self.onChange = onChange
-        self.label = label
+        binding = SmartCollectionBind(sources.map { $0[keyPath: isOn] }, onChange)
+        self.label = ViewHolder(label)
     }
 
     public init<C: RandomAccessCollection>(
@@ -43,21 +39,12 @@ public struct Switch<Label: View>: View {
         isOn: KeyPath<C.Element, Bool>,
         onChange: @escaping (Bool) -> Void
     ) where Label == Text {
-        sourceValue = sources.map { $0[keyPath: isOn] }
-        self.onChange = onChange
-        self.label = { Text(titleKey) }
+        binding = SmartCollectionBind(sources.map { $0[keyPath: isOn] }, onChange)
+        self.label = ViewHolder({ Text(titleKey) })
     }
 
-    public var body: some View {
-        Toggle(sources: $isOn, isOn: \.self, label: label)
-            .onChange(of: sourceValue, initial: true) { old, new in
-                isOn = sourceValue
-            }
-            .onChange(of: isOn) { old, new in
-                guard old != new && new != sourceValue, let newValue = new.first else {
-                    return
-                }
-                onChange(newValue)
-            }
+    public var body: some View {        
+        Toggle(sources: $isOn, isOn: \.self, label: label.content)
+            .sync(binding, $isOn)
     }
 }

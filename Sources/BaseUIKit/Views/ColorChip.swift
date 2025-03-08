@@ -2,11 +2,10 @@ import SwiftUI
 import BaseKit
 
 struct ColorChip: View {
-    let color: BaseKit.Color
-    let onChange: (BaseKit.Color) -> Void
+    let color: SmartBind<BaseKit.Color>
     @State private var isPresenting = false
-    let onBeginEditing: () -> Void
-    let onEndEditing: () -> Void
+    let onBeginEditing: Callback<Void>
+    let onEndEditing: Callback<Void>
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,7 +19,6 @@ struct ColorChip: View {
                 .presentColorPicker(
                     isPresented: $isPresenting,
                     color: color,
-                    onChange: onChange,
                     onBeginEditing: onBeginEditing,
                     onEndEditing: onEndEditing
                 )
@@ -52,7 +50,7 @@ private extension ColorChip {
     
     @ViewBuilder
     var colorValue: SwiftUI.Color {
-        color.swiftUI
+        color.value.swiftUI
     }
 }
 
@@ -62,15 +60,13 @@ import AppKit
 extension View {
     func presentColorPicker(
         isPresented: Binding<Bool>,
-        color: BaseKit.Color,
-        onChange: @escaping (BaseKit.Color) -> Void,
-        onBeginEditing: @escaping () -> Void,
-        onEndEditing: @escaping () -> Void
+        color: SmartBind<BaseKit.Color>,
+        onBeginEditing: Callback<Void>,
+        onEndEditing: Callback<Void>
     ) -> some View {
         modifier(
             ColorPanelModifier(
                 color: color,
-                onChange: onChange,
                 isPresented: isPresented,
                 onBeginEditing: onBeginEditing,
                 onEndEditing: onEndEditing
@@ -81,11 +77,10 @@ extension View {
 
 struct ColorPanelModifier: ViewModifier {
     @State private var coordinator = ColorPanelCoordinator()
-    let color: BaseKit.Color
-    let onChange: (BaseKit.Color) -> Void
+    let color: SmartBind<BaseKit.Color>
     @Binding var isPresented: Bool
-    let onBeginEditing: () -> Void
-    let onEndEditing: () -> Void
+    let onBeginEditing: Callback<Void>
+    let onEndEditing: Callback<Void>
     
     func body(content: Content) -> some View {
         content
@@ -96,12 +91,12 @@ struct ColorPanelModifier: ViewModifier {
                 if newValue {
                     onBeginEditing()
                     coordinator.present(
-                        initialColor: color,
+                        initialColor: color.value,
                         onDismiss: {
                             onEndEditing()
                             isPresented = false
                         },
-                        onChange: onChange
+                        onChange: color.onChange
                     )
                 }
             }
@@ -172,15 +167,13 @@ import UIKit
 extension View {
     func presentColorPicker(
         isPresented: Binding<Bool>,
-        color: BaseKit.Color,
-        onChange: @escaping (BaseKit.Color) -> Void,
-        onBeginEditing: @escaping () -> Void,
-        onEndEditing: @escaping () -> Void
+        color: SmartBind<BaseKit.Color>,
+        onBeginEditing: Callback<Void>,
+        onEndEditing: Callback<Void>
     ) -> some View {
         modifier(
             ColorPanelModifier(
                 color: color,
-                onChange: onChange,
                 isPresented: isPresented,
                 onBeginEditing: onBeginEditing,
                 onEndEditing: onEndEditing
@@ -190,18 +183,17 @@ extension View {
 }
 
 struct ColorPanelModifier: ViewModifier {
-    let color: BaseKit.Color
-    let onChange: (BaseKit.Color) -> Void
+    let color: SmartBind<BaseKit.Color>
     @Binding var isPresented: Bool
-    let onBeginEditing: () -> Void
-    let onEndEditing: () -> Void
+    let onBeginEditing: Callback<Void>
+    let onEndEditing: Callback<Void>
 
     func body(content: Content) -> some View {
         content
             .popover(isPresented: $isPresented) {
                 ColorPickerViewControllerRepresentable(
-                    color: color,
-                    onChange: onChange,
+                    color: color.value,
+                    onChange: color.onChange,
                     onDismiss: {
                         isPresented = false
                     }
@@ -278,10 +270,9 @@ struct ColorChipPreview: View {
     
     var body: some View {
         ColorChip(
-            color: color,
-            onChange: { color = $0 },
-            onBeginEditing: {},
-            onEndEditing: {})
+            color: SmartBind(color, { color = $0 }),
+            onBeginEditing: Callback({}),
+            onEndEditing: Callback({}))
     }
 }
 

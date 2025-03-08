@@ -7,11 +7,10 @@ public protocol SliderFieldParser<Value>: FieldParser {
 
 public struct ValueSliderField<Parser: SliderFieldParser>: View {
     private let title: String
-    private let value: Parser.Value
-    private let onChange: (Parser.Value) -> Void
+    private let value: SmartBind<Parser.Value>
     private let range: ClosedRange<Double>
-    private let onBeginEditing: () -> Void
-    private let onEndEditing: () -> Void
+    private let onBeginEditing: Callback<Void>
+    private let onEndEditing: Callback<Void>
     @State private var errorMessage: String?
     @State private var text: String = ""
     @State private var number: Double = 0.0
@@ -28,11 +27,10 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.title = title
-        self.value = value
-        self.onChange = onChange
+        self.value = SmartBind(value, onChange)
         self.range = range
-        self.onBeginEditing = onBeginEditing
-        self.onEndEditing = onEndEditing
+        self.onBeginEditing = Callback(onBeginEditing)
+        self.onEndEditing = Callback(onEndEditing)
         self.errorMessage = errorMessage
     }
     
@@ -107,7 +105,7 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
                     .foregroundStyle(Color.red)
             }
         }
-        .onChange(of: value, initial: true) { oldValue, newValue in
+        .onChange(of: value.value, initial: true) { oldValue, newValue in
             text = Parser.formatValue(newValue)
             number = Parser.doubleValue(newValue)
         }
@@ -118,9 +116,9 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
             
             switch Parser.parseValue(newValue) {
             case let .success(newValue):
-                if Parser.hasChanged(value, newValue) {
+                if Parser.hasChanged(value.value, newValue) {
                     beginTextEditingIfNecessary()
-                    onChange(newValue)
+                    value.onChange(newValue)
                 }
                 errorMessage = nil
             case let .failure(error):
@@ -132,9 +130,9 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
                 return
             }
             
-            let parsedValue = Parser.fromDoubleValue(newValue, existing: value)
-            if Parser.hasChanged(value, parsedValue) {
-                onChange(parsedValue)
+            let parsedValue = Parser.fromDoubleValue(newValue, existing: value.value)
+            if Parser.hasChanged(value.value, parsedValue) {
+                value.onChange(parsedValue)
             }
             text = Parser.formatValue(parsedValue)
         }

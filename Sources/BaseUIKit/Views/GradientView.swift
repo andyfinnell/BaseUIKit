@@ -18,9 +18,9 @@ public struct GradientView: View {
     @State private var width: CGFloat = 0.0
     @State private var removingStop: RemovingStop? = nil
     @State private var isDragging = false
-    private let onChange: ([Stop]) -> Void
-    private let onBeginEditing: () -> Void
-    private let onEndEditing: () -> Void
+    private let onChange: Callback<[Stop]>
+    private let onBeginEditing: Callback<Void>
+    private let onEndEditing: Callback<Void>
 
     public init(
         stops: [Stop],
@@ -29,9 +29,9 @@ public struct GradientView: View {
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.allStops = [stops]
-        self.onChange = onChange
-        self.onBeginEditing = onBeginEditing
-        self.onEndEditing = onEndEditing
+        self.onChange = Callback(onChange)
+        self.onBeginEditing = Callback(onBeginEditing)
+        self.onEndEditing = Callback(onEndEditing)
     }
     
     public init<C: RandomAccessCollection & Sendable>(
@@ -42,9 +42,9 @@ public struct GradientView: View {
         onEndEditing: @escaping () -> Void = {}
     ) {
         allStops = sources.map { $0[keyPath: stop] }
-        self.onChange = onChange
-        self.onBeginEditing = onBeginEditing
-        self.onEndEditing = onEndEditing
+        self.onChange = Callback(onChange)
+        self.onBeginEditing = Callback(onBeginEditing)
+        self.onEndEditing = Callback(onEndEditing)
     }
 
     public var body: some View {
@@ -102,12 +102,11 @@ private extension GradientView {
     @ViewBuilder
     func colorStop(for stop: Stop, width: CGFloat) -> some View {
         ColorChip(
-            color: stop.color,
-            onChange: {
+            color: SmartBind(stop.color, {
                 var newValue = stops
                 newValue[byID: stop.id] = Stop(id: stop.id, offset: stop.offset, color: $0)
                 onChange(newValue)
-            },
+            }),
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing
         )
@@ -115,8 +114,7 @@ private extension GradientView {
             if let removingStop, removingStop.id == stop.id {
                 VStack {
                     ColorChip(
-                        color: BaseKit.Color.black,
-                        onChange: { _ in },
+                        color: SmartBind(BaseKit.Color.black, { _ in }),
                         onBeginEditing: onBeginEditing,
                         onEndEditing: onEndEditing
                     )

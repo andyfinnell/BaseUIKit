@@ -4,12 +4,11 @@ import BaseKit
 public struct ColorWell: View {
     @Environment(\.self) private var environment
     private let title: String
-    private let colors: [BaseKit.Color]
-    private let onChange: (BaseKit.Color) -> Void
+    private let colors: SmartCollectionBind<[BaseKit.Color]>
     private let supportsOpacity: Bool
     @State private var isPresenting = false
-    private let onBeginEditing: () -> Void
-    private let onEndEditing: () -> Void
+    private let onBeginEditing: Callback<Void>
+    private let onEndEditing: Callback<Void>
     
     public init<C: RandomAccessCollection & Sendable>(
         _ title: String,
@@ -21,11 +20,10 @@ public struct ColorWell: View {
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.title = title
-        self.colors = sources.map { $0[keyPath: color] }
-        self.onChange = onChange
+        self.colors = SmartCollectionBind(sources.map { $0[keyPath: color] }, onChange)
         self.supportsOpacity = supportsOpacity
-        self.onBeginEditing = onBeginEditing
-        self.onEndEditing = onEndEditing
+        self.onBeginEditing = Callback(onBeginEditing)
+        self.onEndEditing = Callback(onEndEditing)
     }
     
     public init(
@@ -37,11 +35,10 @@ public struct ColorWell: View {
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.title = title
-        self.colors = [color]
-        self.onChange = onChange
+        self.colors = SmartCollectionBind([color], onChange)
         self.supportsOpacity = supportsOpacity
-        self.onBeginEditing = onBeginEditing
-        self.onEndEditing = onEndEditing
+        self.onBeginEditing = Callback(onBeginEditing)
+        self.onEndEditing = Callback(onEndEditing)
     }
     
     public var body: some View {
@@ -57,14 +54,14 @@ public struct ColorWell: View {
             }) {
 #if os(macOS)
                 MulticolorView(
-                    colors: colors.map { $0 },
+                    colors: colors.value.map { $0 },
                     width: 36,
                     height: 16)
                 .clipShape(RoundedRectangle(cornerRadius: 2))
 
 #else
                 MulticolorView(
-                    colors: colors.map { $0 },
+                    colors: colors.value.map { $0 },
                     width: 26,
                     height: 26)
                 .clipShape(Circle())
@@ -74,8 +71,7 @@ public struct ColorWell: View {
             .focusEffectDisabled()
             .presentColorPicker(
                 isPresented: $isPresenting,
-                color: presentedColor,
-                onChange: onChange,
+                color: SmartBind(presentedColor, colors.onChange),
                 onBeginEditing: onBeginEditing,
                 onEndEditing: onEndEditing
             )
@@ -85,7 +81,7 @@ public struct ColorWell: View {
 
 private extension ColorWell {
     var presentedColor: BaseKit.Color {
-        colors.first ?? BaseKit.Color.black
+        colors.value.first ?? BaseKit.Color.black
     }
 }
 

@@ -2,11 +2,10 @@ import SwiftUI
 
 public struct PopOverSliderField<Parser: SliderFieldParser>: View {
     private let title: String
-    private let value: Parser.Value
-    private let onChange: (Parser.Value) -> Void
+    private let value: SmartBind<Parser.Value>
     private let range: ClosedRange<Double>
-    private let onBeginEditing: () -> Void
-    private let onEndEditing: () -> Void
+    private let onBeginEditing: Callback<Void>
+    private let onEndEditing: Callback<Void>
     @State private var text: String = ""
     @State private var errorMessage: String? = nil
     @State private var isShowing = false
@@ -23,8 +22,22 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.title = title
+        self.value = SmartBind(value, onChange)
+        self.range = range
+        self.onBeginEditing = Callback(onBeginEditing)
+        self.onEndEditing = Callback(onEndEditing)
+    }
+
+    init(
+        _ title: String,
+        value: SmartBind<Parser.Value>,
+        in range: ClosedRange<Double>,
+        errorMessage: String? = nil,
+        onBeginEditing: Callback<Void>,
+        onEndEditing: Callback<Void>
+    ) {
+        self.title = title
         self.value = value
-        self.onChange = onChange
         self.range = range
         self.onBeginEditing = onBeginEditing
         self.onEndEditing = onEndEditing
@@ -87,20 +100,20 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
             }
             .popover(isPresented: $isShowing) {
                 PopOverSlider(
-                    number: Parser.doubleValue(value),
+                    number: Parser.doubleValue(value.value),
                     text: $text,
                     range: range,
                     onBeginEditing: onBeginEditing,
                     onEndEditing: onEndEditing,
-                    onChange: { newValue in
-                        let parsedValue = Parser.fromDoubleValue(newValue, existing: value)
-                        if Parser.hasChanged(value, parsedValue) {
-                            onChange(parsedValue)
+                    onChange: Callback({ newValue in
+                        let parsedValue = Parser.fromDoubleValue(newValue, existing: value.value)
+                        if Parser.hasChanged(value.value, parsedValue) {
+                            value.onChange(parsedValue)
                         }
-                    },
-                    toText: { newValue in
-                        Parser.formatValue(Parser.fromDoubleValue(newValue, existing: value))
-                    }
+                    }),
+                    toText: Call({ newValue in
+                        Parser.formatValue(Parser.fromDoubleValue(newValue, existing: value.value))
+                    })
                 )
             }
             
@@ -110,7 +123,7 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
                     .foregroundStyle(Color.red)
             }
         }
-        .onChange(of: value, initial: true) { oldValue, newValue in
+        .onChange(of: value.value, initial: true) { oldValue, newValue in
             text = Parser.formatValue(newValue)
         }
         .onChange(of: text) { oldValue, newValue in
@@ -120,9 +133,9 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
             
             switch Parser.parseValue(newValue) {
             case let .success(newValue):
-                if Parser.hasChanged(value, newValue) {
+                if Parser.hasChanged(value.value, newValue) {
                     beginTextEditingIfNecessary()
-                    onChange(newValue)
+                    value.onChange(newValue)
                 }
                 errorMessage = nil
             case let .failure(error):
@@ -162,10 +175,10 @@ struct PopOverSlider: View {
     @State var number: Double
     @Binding var text: String
     let range: ClosedRange<Double>
-    let onBeginEditing: () -> Void
-    let onEndEditing: () -> Void
-    let onChange: (Double) -> Void
-    let toText: (Double) -> String
+    let onBeginEditing: Callback<Void>
+    let onEndEditing: Callback<Void>
+    let onChange: Callback<Double>
+    let toText: Call<Double, String>
     
     var body: some View {
 #if os(macOS)

@@ -3,22 +3,22 @@ import SwiftUI
 public struct InspectorGroup<Content: View>: View {
     private let title: String
     private let key: String
-    private let content: () -> Content
+    private let content: ViewHolder<Content>
     @State private var isExpanded = false
     @Environment(\.documentFileURLHash) private var documentFileURLHash
     
     public init(_ title: String, key: String, @ViewBuilder content: @escaping () -> Content) {
         self.title = title
         self.key = key
-        self.content = content
+        self.content = ViewHolder(content)
     }
     
-    public var body: some View {
+    public var body: some View {        
 #if os(macOS)
         DisclosureGroup(
             isExpanded: $isExpanded,
             content: {
-                content()
+                content.content()
                     .controlSize(.mini)
                     .padding()
             }, label: {
@@ -37,7 +37,7 @@ public struct InspectorGroup<Content: View>: View {
         DisclosureGroup(
             isExpanded: $isExpanded,
             content: {
-                content()
+                content.content()
                     .controlSize(.mini)
                     .padding()
             }, label: {

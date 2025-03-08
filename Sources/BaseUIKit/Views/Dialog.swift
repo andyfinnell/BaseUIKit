@@ -20,7 +20,7 @@ public extension View {
                 cancelEnabled: cancelEnabled,
                 okTitle: okTitle,
                 okEnabled: okEnabled,
-                onSubmit: onSubmit
+                onSubmit: Callback(onSubmit)
             )
         )
     }
@@ -35,7 +35,7 @@ struct DialogModifier: ViewModifier {
     let cancelEnabled: Bool
     let okTitle: String
     let okEnabled: Bool
-    let onSubmit: () -> Void
+    let onSubmit: Callback<Void>
     
     func body(content: Content) -> some View {
         navigationContainer {

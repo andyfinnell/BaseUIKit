@@ -2,10 +2,9 @@ import SwiftUI
 import BaseKit
 
 public struct AngleDial: View {
-    private let angle: BaseKit.Angle
-    private let onChange: (BaseKit.Angle) -> Void
-    private let onBeginEditing: () -> Void
-    private let onEndEditing: () -> Void
+    private let angle: SmartBind<BaseKit.Angle>
+    private let onBeginEditing: Callback<Void>
+    private let onEndEditing: Callback<Void>
     @State private var isDragging = false
 
     public init(
@@ -14,12 +13,21 @@ public struct AngleDial: View {
         onBeginEditing: @escaping () -> Void,
         onEndEditing: @escaping () -> Void
     ) {
+        self.angle = SmartBind(angle, onChange)
+        self.onBeginEditing = Callback(onBeginEditing)
+        self.onEndEditing = Callback(onEndEditing)
+    }
+
+    init(
+        angle: SmartBind<BaseKit.Angle>,
+        onBeginEditing: Callback<Void>,
+        onEndEditing: Callback<Void>
+    ) {
         self.angle = angle
-        self.onChange = onChange
         self.onBeginEditing = onBeginEditing
         self.onEndEditing = onEndEditing
     }
-    
+
     public var body: some View {
         DialTrackShape()
             .fill(Color.background)
@@ -27,7 +35,7 @@ public struct AngleDial: View {
             .frame(width: AngleDial.size, height: AngleDial.size)
             .overlay {
                 DialKnobShape()
-                    .rotation(angle.toSwiftUI, anchor: .center)
+                    .rotation(angle.value.toSwiftUI, anchor: .center)
                     .fill(Color.accentColor)
                     .stroke(Color.primary)
             }
@@ -64,7 +72,7 @@ private extension AngleDial {
         updateAngle(from: location)
         
         isDragging = false
-        
+        angle.flush()
         onEndEditing()
     }
     
@@ -80,7 +88,7 @@ private extension AngleDial {
             // It's greater than 180º so we'll need to manually add on
             newAngle = BaseKit.Angle(degrees: 360) - newAngle
         }
-        onChange(newAngle)
+        angle.debounce(newAngle)
     }
 }
 

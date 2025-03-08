@@ -2,11 +2,11 @@ import SwiftUI
 import BaseKit
 
 public struct AnchorButton: View {
-    private let action: (BaseKit.AnchorPoint) -> Void
+    private let action: Callback<BaseKit.AnchorPoint>
     @State private var showPopover = false
     
     public init(action: @escaping (BaseKit.AnchorPoint) -> Void) {
-        self.action = action
+        self.action = Callback(action)
     }
 
     public var body: some View {
@@ -26,10 +26,10 @@ public struct AnchorButton: View {
 }
 
 private struct AnchorPopOver: View {
-    private let action: (BaseKit.AnchorPoint) -> Void
+    private let action: Callback<BaseKit.AnchorPoint>
     
     init(action: @escaping (BaseKit.AnchorPoint) -> Void) {
-        self.action = action
+        self.action = Callback(action)
     }
     
     var body: some View {
@@ -59,7 +59,7 @@ private struct AnchorPopOverButton: View {
     private static let size: CGFloat = 24
     
     let value: BaseKit.AnchorPoint
-    let action: (BaseKit.AnchorPoint) -> Void
+    let action: Callback<BaseKit.AnchorPoint>
     
     var body: some View {
         Button(

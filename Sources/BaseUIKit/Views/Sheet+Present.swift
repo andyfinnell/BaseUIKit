@@ -19,8 +19,8 @@ public extension View {
 public struct SheetPresenterModifier<T: Equatable, SheetContent: View>: ViewModifier {
     @State private var isVisible = false
     private let isPresented: T?
-    private let onChange: (T?) -> Void
-    private let sheetContent: () -> SheetContent
+    private let onChange: Callback<T?>
+    private let sheetContent: ViewHolder<SheetContent>
 
     public init(
         isPresented: T?,
@@ -28,13 +28,13 @@ public struct SheetPresenterModifier<T: Equatable, SheetContent: View>: ViewModi
         sheetContent: @escaping () -> SheetContent
     ) {
         self.isPresented = isPresented
-        self.onChange = onChange
-        self.sheetContent = sheetContent
+        self.onChange = Callback(onChange)
+        self.sheetContent = ViewHolder(sheetContent)
     }
     
     public func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $isVisible, content: sheetContent)
+            .sheet(isPresented: $isVisible, content: sheetContent.content)
             .onChange(of: isPresented, initial: true) { old, new in
                 isVisible = new != nil
             }

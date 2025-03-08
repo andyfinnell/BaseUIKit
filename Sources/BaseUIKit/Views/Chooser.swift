@@ -10,13 +10,12 @@ extension Optional: Defaultable {
     }
 }
 
-public struct Chooser<Content: View, Label: View, Value: Hashable & Defaultable>: View {
+public struct Chooser<Content: View, Label: View, Value: Hashable & Defaultable & Sendable>: View {
     // This has to have at least one value in it or Picker crashes
     @State private var selection = [Value.defaultValue()]
-    private let source: [Value]
-    private let onChange: (Value) -> Void
-    private let content: () -> Content
-    private let label: () -> Label
+    private let source: SmartCollectionBind<[Value]>
+    private let content: ViewHolder<Content>
+    private let label: ViewHolder<Label>
     
     public init(
         selection source: Value,
@@ -24,10 +23,9 @@ public struct Chooser<Content: View, Label: View, Value: Hashable & Defaultable>
         @ViewBuilder content: @escaping () -> Content,
         @ViewBuilder label: @escaping () -> Label
     ) {
-        self.source = [source]
-        self.onChange = onChange
-        self.content = content
-        self.label = label
+        self.source = SmartCollectionBind([source], onChange)
+        self.content = ViewHolder(content)
+        self.label = ViewHolder(label)
     }
 
     public init(
@@ -36,10 +34,9 @@ public struct Chooser<Content: View, Label: View, Value: Hashable & Defaultable>
         onChange: @escaping (Value) -> Void,
         @ViewBuilder content: @escaping () -> Content
     ) where Label == Text {
-        self.source = [source]
-        self.onChange = onChange
-        self.content = content
-        self.label = { Text(titleKey) }
+        self.source = SmartCollectionBind([source], onChange)
+        self.content = ViewHolder(content)
+        self.label = ViewHolder({ Text(titleKey) })
     }
 
     public init<C: RandomAccessCollection>(
@@ -49,10 +46,9 @@ public struct Chooser<Content: View, Label: View, Value: Hashable & Defaultable>
         @ViewBuilder content: @escaping () -> Content,
         @ViewBuilder label: @escaping () -> Label
     ) {
-        self.source = sources.map { $0[keyPath: source] }
-        self.onChange = onChange
-        self.content = content
-        self.label = label
+        self.source = SmartCollectionBind(sources.map { $0[keyPath: source] }, onChange)
+        self.content = ViewHolder(content)
+        self.label = ViewHolder(label)
     }
 
     public init<C: RandomAccessCollection>(
@@ -62,22 +58,13 @@ public struct Chooser<Content: View, Label: View, Value: Hashable & Defaultable>
         onChange: @escaping (Value) -> Void,
         @ViewBuilder content: @escaping () -> Content
     ) where Label == Text {
-        self.source = sources.map { $0[keyPath: source] }
-        self.onChange = onChange
-        self.content = content
-        self.label = { Text(titleKey) }
+        self.source = SmartCollectionBind(sources.map { $0[keyPath: source] }, onChange)
+        self.content = ViewHolder(content)
+        self.label = ViewHolder({ Text(titleKey) })
     }
 
     public var body: some View {
-        Picker(sources: $selection, selection: \.self, content: content, label: label)
-            .onChange(of: source, initial: true) { old, new in
-                selection = source
-            }
-            .onChange(of: selection) { old, new in
-                guard old != new && new != source, let newValue = new.first else {
-                    return
-                }
-                onChange(newValue)
-            }
+        Picker(sources: $selection, selection: \.self, content: content.content, label: label.content)
+            .sync(source, $selection)
     }
 }

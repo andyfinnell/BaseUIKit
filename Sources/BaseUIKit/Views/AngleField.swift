@@ -55,10 +55,9 @@ public struct AngleFieldParser: FieldParser {
 
 public struct AngleField: View {
     private let title: String
-    private let value: AngleFieldParser.Value
-    private let onChange: (AngleFieldParser.Value) -> Void
-    private let onBeginEditing: () -> Void
-    private let onEndEditing: () -> Void
+    private let value: SmartBind<AngleFieldParser.Value>
+    private let onBeginEditing: Callback<Void>
+    private let onEndEditing: Callback<Void>
     @State private var text: String = ""
     @State private var errorMessage: String? = nil
     @State private var isShowing = false
@@ -74,28 +73,10 @@ public struct AngleField: View {
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.title = title
-        self.value = value
-        self.onChange = onChange
-        self.onBeginEditing = onBeginEditing
-        self.onEndEditing = onEndEditing
+        self.value = SmartBind(value, onChange)
+        self.onBeginEditing = Callback(onBeginEditing)
+        self.onEndEditing = Callback(onEndEditing)
     }
-
-//    public init<C: RandomAccessCollection & Sendable>(
-//        _ title: String,
-//        sources: C,
-//        value: KeyPath<C.Element, Binding<AngleFieldParser.Value>> & Sendable,
-//        errorMessage: String? = nil,
-//        onBeginEditing: @escaping () -> Void = {},
-//        onEndEditing: @escaping () -> Void = {}
-//    ) {
-//        self.init(
-//            title,
-//            value: AngleFieldParser.multiselectBinding(sources: sources, value: value),
-//            errorMessage: errorMessage,
-//            onBeginEditing: onBeginEditing,
-//            onEndEditing: onEndEditing
-//        )
-//    }
 
     public var body: some View {
         VStack {
@@ -132,14 +113,13 @@ public struct AngleField: View {
                 })
                 .popover(isPresented: $isShowing) {
                     PopOverAngleDial(
-                        angle: value,
-                        onBeginEditing: onBeginEditing,
-                        onEndEditing: onEndEditing,
-                        onChange: { newValue in
-                            if AngleFieldParser.hasChanged(value, newValue) {
+                        angle: value.map(onChange: { oldValue, onChange, newValue in
+                            if AngleFieldParser.hasChanged(oldValue, newValue) {
                                 onChange(newValue)
                             }
-                        }
+                        }),
+                        onBeginEditing: onBeginEditing,
+                        onEndEditing: onEndEditing
                     )
                 }
             }
@@ -150,7 +130,7 @@ public struct AngleField: View {
                     .foregroundStyle(Color.red)
             }
         }
-        .onChange(of: value, initial: true) { oldValue, newValue in
+        .onChange(of: value.value, initial: true) { oldValue, newValue in
             text = AngleFieldParser.formatValue(newValue)
         }
         .onChange(of: text) { oldValue, newValue in
@@ -160,9 +140,9 @@ public struct AngleField: View {
             
             switch AngleFieldParser.parseValue(newValue) {
             case let .success(newValue):
-                if AngleFieldParser.hasChanged(value, newValue) {
+                if AngleFieldParser.hasChanged(value.value, newValue) {
                     beginTextEditingIfNecessary()
-                    onChange(newValue)
+                    value.onChange(newValue)
                 }
                 errorMessage = nil
             case let .failure(error):
@@ -199,16 +179,14 @@ private extension AngleField {
 }
 
 struct PopOverAngleDial: View {
-    let angle: BaseKit.Angle
-    let onBeginEditing: () -> Void
-    let onEndEditing: () -> Void
-    let onChange: (BaseKit.Angle) -> Void
-    
+    let angle: SmartBind<BaseKit.Angle>
+    let onBeginEditing: Callback<Void>
+    let onEndEditing: Callback<Void>
+
     var body: some View {
 #if os(macOS)
         AngleDial(
             angle: angle,
-            onChange: onChange,
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing
         )
@@ -216,7 +194,6 @@ struct PopOverAngleDial: View {
 #if os(iOS)
         AngleDial(
             angle: angle,
-            onChange: onChange,
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing
         )

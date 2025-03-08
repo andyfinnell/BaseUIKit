@@ -19,8 +19,8 @@ public extension View {
 public struct InspectorPresenterModifier<InspectorContent: View>: ViewModifier {
     @State private var isVisible = false
     private let isPresented: Bool
-    private let onChange: (Bool) -> Void
-    private let inspectorContent: () -> InspectorContent
+    private let onChange: Callback<Bool>
+    private let inspectorContent: ViewHolder<InspectorContent>
 
     public init(
         isPresented: Bool,
@@ -28,13 +28,13 @@ public struct InspectorPresenterModifier<InspectorContent: View>: ViewModifier {
         inspectorContent: @escaping () -> InspectorContent
     ) {
         self.isPresented = isPresented
-        self.onChange = onChange
-        self.inspectorContent = inspectorContent
+        self.onChange = Callback(onChange)
+        self.inspectorContent = ViewHolder(inspectorContent)
     }
     
     public func body(content: Content) -> some View {
         content
-            .inspector(isPresented: $isVisible, content: inspectorContent)
+            .inspector(isPresented: $isVisible, content: inspectorContent.content)
             .onChange(of: isPresented, initial: true) { old, new in
                 isVisible = new
             }

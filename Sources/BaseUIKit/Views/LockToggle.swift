@@ -2,11 +2,11 @@ import SwiftUI
 
 public struct LockToggle: View {
     private let isOn: Bool
-    private let onChange: (Bool) -> Void
+    private let onChange: Callback<Bool>
     
     public init(isOn: Bool, onChange: @escaping (Bool) -> Void) {
         self.isOn = isOn
-        self.onChange = onChange
+        self.onChange = Callback(onChange)
     }
     
     public var body: some View {

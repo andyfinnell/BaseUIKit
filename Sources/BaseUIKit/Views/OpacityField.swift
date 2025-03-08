@@ -57,10 +57,9 @@ public struct OpacityFieldParser: SliderFieldParser {
 }
 
 public struct OpacityField: View {
-    private let value: Double
-    private let onChange: (Double) -> Void
-    private let onBeginEditing: () -> Void
-    private let onEndEditing: () -> Void
+    private let value: SmartBind<Double>
+    private let onBeginEditing: Callback<Void>
+    private let onEndEditing: Callback<Void>
 
     public init(
         value: Double,
@@ -68,10 +67,9 @@ public struct OpacityField: View {
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
-        self.value = value
-        self.onChange = onChange
-        self.onBeginEditing = onBeginEditing
-        self.onEndEditing = onEndEditing
+        self.value = SmartBind(value, onChange)
+        self.onBeginEditing = Callback(onBeginEditing)
+        self.onEndEditing = Callback(onEndEditing)
     }
 
     public init<C: RandomAccessCollection & Sendable>(
@@ -93,7 +91,6 @@ public struct OpacityField: View {
         PopOverSliderField<OpacityFieldParser>(
             "Opacity",
             value: value,
-            onChange: onChange,
             in: 0...1,
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing

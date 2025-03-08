@@ -1,15 +1,15 @@
 import SwiftUI
 
 public struct InspectorContainer<Content: View>: View {
-    private let content: () -> Content
+    private let content: ViewHolder<Content>
     
     public init(@ViewBuilder content: @escaping () -> Content) {
-        self.content = content
+        self.content = ViewHolder(content)
     }
     
     public var body: some View {
         ScrollView {
-            content()
+            content.content()
         }
     }
 }

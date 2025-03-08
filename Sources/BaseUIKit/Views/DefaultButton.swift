@@ -4,12 +4,12 @@ public struct DefaultButton: View {
     @Environment(\.dismiss) private var dismiss
     private let title: String
     private let isEnabled: Bool
-    private let action: (DismissAction) -> Void
+    private let action: Callback<DismissAction>
     
     public init(_ title: String = "OK", isEnabled: Bool = true, action: @escaping (DismissAction) -> Void) {
         self.title = title
         self.isEnabled = isEnabled
-        self.action = action
+        self.action = Callback(action)
     }
     
     public var body: some View {
@@ -24,17 +24,17 @@ public struct DefaultButton: View {
 public struct DefaultToolbarItem: ToolbarContent {
     private let title: String
     private let isEnabled: Bool
-    private let action: (DismissAction) -> Void
+    private let action: Callback<DismissAction>
 
     public init(_ title: String = "OK", isEnabled: Bool = true, action: @escaping (DismissAction) -> Void) {
         self.title = title
         self.isEnabled = isEnabled
-        self.action = action
+        self.action = Callback(action)
     }
 
     public var body: some ToolbarContent {
         ToolbarItem(placement: .confirmationAction) {
-            DefaultButton(title, isEnabled: isEnabled, action: action)
+            DefaultButton(title, isEnabled: isEnabled, action: action.callback)
         }
     }
 }

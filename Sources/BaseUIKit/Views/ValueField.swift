@@ -9,7 +9,7 @@ public struct FieldParserError: Error {
 }
 
 public protocol FieldParser<Value> {
-    associatedtype Value: Equatable
+    associatedtype Value: Equatable & Sendable
     
     static func parseValue(_ text: String) -> Result<Value, FieldParserError>
     static func formatValue(_ value: Value) -> String
@@ -28,10 +28,9 @@ public protocol FieldParser<Value> {
 
 public struct ValueField<Parser: FieldParser>: View {
     private let title: String
-    private let value: Parser.Value
-    private let onChange: (Parser.Value) -> Void
-    private let onBeginEditing: () -> Void
-    private let onEndEditing: () -> Void
+    private let value: SmartBind<Parser.Value>
+    private let onBeginEditing: Callback<Void>
+    private let onEndEditing: Callback<Void>
     @State private var errorMessage: String?
     @State private var text: String = ""
     @State private var isTextEditing = false
@@ -46,11 +45,10 @@ public struct ValueField<Parser: FieldParser>: View {
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.title = title
-        self.value = value
-        self.onChange = onChange
+        self.value = SmartBind(value, onChange)
         self.errorMessage = errorMessage
-        self.onBeginEditing = onBeginEditing
-        self.onEndEditing = onEndEditing
+        self.onBeginEditing = Callback(onBeginEditing)
+        self.onEndEditing = Callback(onEndEditing)
     }
     
     public init<C: RandomAccessCollection & Sendable>(
@@ -103,7 +101,7 @@ public struct ValueField<Parser: FieldParser>: View {
                     .foregroundStyle(Color.red)
             }
         }
-        .onChange(of: value, initial: true) { oldValue, newValue in
+        .onChange(of: value.value, initial: true) { oldValue, newValue in
             text = Parser.formatValue(newValue)
         }
         .onChange(of: text) { oldValue, newValue in
@@ -113,9 +111,9 @@ public struct ValueField<Parser: FieldParser>: View {
             
             switch Parser.parseValue(newValue) {
             case let .success(newValue):
-                if Parser.hasChanged(value, newValue) {
+                if Parser.hasChanged(value.value, newValue) {
                     beginTextEditingIfNecessary()
-                    onChange(newValue)
+                    value.onChange(newValue)
                 }
                 errorMessage = nil
             case let .failure(error):
