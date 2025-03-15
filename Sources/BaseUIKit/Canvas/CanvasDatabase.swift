@@ -14,6 +14,8 @@ protocol CanvasCoreViewDelegate: AnyObject {
 public final class CanvasDatabase<ID: Hashable & Sendable> {
     private var objectsInOrder = [any CanvasObject<ID>]()
     private var objectById = [ID: any CanvasObject<ID>]()
+    private var generatedLayersByComputedID = [ID: Generated]() // ComputedLayer.id -> generated IDs
+    private var computedLayersBasedOnID = [ID: [ComputedLayer<ID>]]() // Dependent layer id -> ComputedLayer
     
     var objectIDs: [ID] {
         objectsInOrder.map { $0.id }
@@ -128,13 +130,17 @@ public final class CanvasDatabase<ID: Hashable & Sendable> {
         backgroundColor = canvas.backgroundColor
         
         let previousLayers = objectsInOrder.map { $0.layer }
-        let diffs = canvas.layers.difference(from: previousLayers)
+        let canvasLayers = flattenCanvasLayers(canvas)
+        let diffs = canvasLayers.difference(from: previousLayers)
+        // Order is important here; flattenCanvasLayers can add to objectById
         let existing = objectById
         
         for diff in diffs {
             switch diff {
             case let .insert(offset: offset, element: layer, associatedWith: _):
-                let canvasObject = existing[layer.id] ?? make(from: layer)
+                guard let canvasObject = existing[layer.id] ?? make(from: layer) else {
+                    break
+                }
                 insert(canvasObject, at: .at(offset))
                 
             case let .remove(offset: _, element: layer, associatedWith: _):
@@ -145,12 +151,15 @@ public final class CanvasDatabase<ID: Hashable & Sendable> {
         }
         
         // Update existing
-        for layer in canvas.layers {
+        for layer in canvasLayers {
             guard let object = existing[layer.id] else {
                 continue
             }
             object.layer = layer
         }
+        
+        // We've already run all computedLayers back in flattenCanvasLayers
+        //  so no need to handle them here.
     }
     
     func invalidate(_ object: any CanvasObject<ID>) {
@@ -164,12 +173,64 @@ public final class CanvasDatabase<ID: Hashable & Sendable> {
 }
 
 public extension CanvasDatabase {
+    struct Generated {
+        let basedOnLayerID: ID
+        let layerIDs: [ID]
+    }
     
     var dimensions: CanvasViewDimensions {
         CanvasViewDimensions(
             size: Size(width: width, height: height),
             screenDPI: screenDPI
         )
+    }
+    
+    func flattenCanvasLayers(_ canvas: Canvas<ID>) -> [Layer<ID>] {
+        let newLayersById = canvas.layers.reduce(into: [ID: Layer<ID>]()) {
+            $0[$1.id] = $1
+        }
+        let canvasLayers = canvas.layers.flatMap {
+            if case let .computed(computed) = $0 {
+                return flattenComputedLayer(computed, using: newLayersById)
+            } else {
+                return [$0]
+            }
+        }
+        
+        // Delete the old computed layers
+        let deletedComputedLayerIDs = generatedLayersByComputedID.keys.filter { newLayersById[$0] == nil }
+        for id in deletedComputedLayerIDs {
+            deleteLayer(by: id)
+        }
+        
+        return canvasLayers
+    }
+    
+    func flattenComputedLayer(_ computed: ComputedLayer<ID>, using layersByID: [ID: Layer<ID>]) -> [Layer<ID>] {
+        guard let basedLayer = layersByID[computed.basedOn] else {
+            return []
+        }
+        
+        // We need the basedLayer's canvasObject, which may or may or may not exist
+        //  and may or may not be up-to-date
+        guard let basedObject = objectById[basedLayer.id] ?? make(from: basedLayer) else {
+            return []
+        }
+        basedObject.layer = basedLayer
+        objectById[basedLayer.id] = basedObject // in case we just created it
+
+        let computedLayers = computed.factory(
+            basedLayer,
+            withContext: LayerFactoryContext(structurePath: basedObject.structurePath)
+        )
+        generatedLayersByComputedID[computed.id] = Generated(
+            basedOnLayerID: basedLayer.id,
+            layerIDs: computedLayers.map(\.id)
+        )
+        
+        computedLayersBasedOnID[basedLayer.id, default: []].append(computed)
+        
+        return computedLayers
     }
     
     func perform(_ command: CanvasCommand<ID>) {
@@ -260,14 +321,96 @@ private extension CanvasDatabase {
     func upsertLayer(_ layer: Layer<ID>, at index: CanvasIndex) {
         if let existing = objectById[layer.id] {
             existing.layer = layer
-        } else {
-            let canvasObject = make(from: layer)
+            updateComputedLayers(basedOn: layer)
+        } else if let canvasObject = make(from: layer) {
             insert(canvasObject, at: index)
+        } else if case let .computed(computed) = layer,
+                  let basedOn = objectById[computed.basedOn] {
+            let newLayers = computed.factory(
+                basedOn.layer,
+                withContext: LayerFactoryContext(structurePath: basedOn.structurePath)
+            )
+            upsertComputedLayers(newLayers, for: computed, at: index)
+            
+            // Insert into the computed layers so it can be re-run later
+            if let existing = computedLayersBasedOnID[computed.basedOn] {
+                if !existing.contains(where: { $0.id == computed.id }) {
+                    computedLayersBasedOnID[computed.basedOn] = existing + [computed]
+                }
+            } else {
+                computedLayersBasedOnID[computed.basedOn] = [computed]
+            }
         }
     }
     
+    func updateComputedLayers(basedOn layer: Layer<ID>) {
+        guard let computers = computedLayersBasedOnID[layer.id] else {
+            return
+        }
+
+        for computer in computers {
+            updateComputedLayer(computer)
+        }
+    }
+    
+    func updateComputedLayer(_ computedLayer: ComputedLayer<ID>) {
+        guard let basedOn = objectById[computedLayer.basedOn] else {
+            return
+        }
+        let newLayers = computedLayer.factory(
+            basedOn.layer,
+            withContext: LayerFactoryContext(structurePath: basedOn.structurePath)
+        )
+        
+        upsertComputedLayers(newLayers, for: computedLayer, at: nil)
+    }
+    
+    func upsertComputedLayers(
+        _ computedLayers: [Layer<ID>],
+        for layer: ComputedLayer<ID>,
+        at index: CanvasIndex?
+    ) {
+        let previousObjects = generatedLayersByComputedID[layer.id]?.layerIDs.compactMap { objectById[$0] } ?? []
+        let previousLayers = previousObjects.map { $0.layer }
+        let diffs = computedLayers.difference(from: previousLayers)
+        let existing = objectById
+        let baseIndex = resolve(index, usingExistingObjects: previousObjects)
+        
+        for diff in diffs {
+            switch diff {
+            case let .insert(offset: offset, element: layer, associatedWith: _):
+                guard let canvasObject = existing[layer.id] ?? make(from: layer) else {
+                    break
+                }
+                insert(canvasObject, at: .at(baseIndex + offset))
+                
+            case let .remove(offset: _, element: layer, associatedWith: _):
+                // If this is a move, `existing` will hold the object in memory
+                //  until we're done
+                remove(byID: layer.id)
+            }
+        }
+        
+        // Update existing
+        for layer in computedLayers {
+            guard let object = existing[layer.id] else {
+                continue
+            }
+            object.layer = layer
+        }
+        
+        generatedLayersByComputedID[layer.id] = Generated(
+            basedOnLayerID: layer.basedOn,
+            layerIDs: computedLayers.map(\.id)
+        )
+    }
+    
     func deleteLayer(by layerID: ID) {
-        remove(byID: layerID)
+        if let generated = generatedLayersByComputedID[layerID] {
+            removeComputed(byID: layerID, generated: generated)
+        } else {
+            remove(byID: layerID)
+        }
     }
     
     func reorderLayer(_ fromID: ID, to toIndex: CanvasIndex) {
@@ -344,11 +487,36 @@ private extension CanvasDatabase {
         invalidate(object.willDrawRect)
     }
     
+    func resolve(_ index: CanvasIndex?, usingExistingObjects existingObjects: [any CanvasObject]) -> Int {
+        if let index {
+            return resolve(index)
+        } else if let firstObject = existingObjects.first,
+                  let firstObjectIndex = objectsInOrder.firstIndex(where: { $0 === firstObject }) {
+            return firstObjectIndex
+        } else {
+            return resolve(.last)
+        }
+    }
+    
     func resolve(_ index: CanvasIndex) -> Int {
         index.resolve(for: objectsInOrder)
     }
     
     func remove(byID id: ID) {
+        removeConcrete(byID: id)
+    }
+        
+    func removeComputed(byID id: ID, generated: Generated) {
+        for generatedID in generated.layerIDs {
+            removeConcrete(byID: generatedID)
+        }
+        generatedLayersByComputedID.removeValue(forKey: id)
+        if let computedLayers = computedLayersBasedOnID[generated.basedOnLayerID] {
+            computedLayersBasedOnID[generated.basedOnLayerID] = computedLayers.filter { $0.id != id }
+        }
+    }
+
+    func removeConcrete(byID id: ID) {
         guard let object = objectById[id] else {
             return
         }
@@ -362,13 +530,13 @@ private extension CanvasDatabase {
         }
         objectById.removeValue(forKey: id)
     }
-        
+
     func update(_ object: any CanvasObject<ID>) {
         invalidate(object.didDrawRect)
         invalidate(object.willDrawRect)
     }
     
-    func make(from layer: Layer<ID>) -> any CanvasObject<ID> {
+    func make(from layer: Layer<ID>) -> (any CanvasObject<ID>)? {
         switch layer {
         case let .image(imageLayer):
             CanvasImage(layer: imageLayer)
@@ -376,6 +544,8 @@ private extension CanvasDatabase {
             CanvasText(layer: textLayer)
         case let .path(pathLayer):
             CanvasPath(layer: pathLayer)
+        case .computed:
+            nil
         }
     }
 }
