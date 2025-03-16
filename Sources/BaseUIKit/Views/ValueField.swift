@@ -28,7 +28,7 @@ public protocol FieldParser<Value> {
 
 public struct ValueField<Parser: FieldParser>: View {
     private let title: String
-    private let value: SmartBind<Parser.Value>
+    private let value: SmartBind<Parser.Value, ExtraEmpty>
     private let onBeginEditing: Callback<Void>
     private let onEndEditing: Callback<Void>
     @State private var errorMessage: String?

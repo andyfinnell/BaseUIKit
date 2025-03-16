@@ -55,7 +55,7 @@ public struct AngleFieldParser: FieldParser {
 
 public struct AngleField: View {
     private let title: String
-    private let value: SmartBind<AngleFieldParser.Value>
+    private let value: SmartBind<AngleFieldParser.Value, ExtraEmpty>
     private let onBeginEditing: Callback<Void>
     private let onEndEditing: Callback<Void>
     @State private var text: String = ""
@@ -179,7 +179,7 @@ private extension AngleField {
 }
 
 struct PopOverAngleDial: View {
-    let angle: SmartBind<BaseKit.Angle>
+    let angle: SmartBind<BaseKit.Angle, ExtraEmpty>
     let onBeginEditing: Callback<Void>
     let onEndEditing: Callback<Void>
 

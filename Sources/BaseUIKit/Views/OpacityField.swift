@@ -57,7 +57,7 @@ public struct OpacityFieldParser: SliderFieldParser {
 }
 
 public struct OpacityField: View {
-    private let value: SmartBind<Double>
+    private let value: SmartBind<Double, ExtraEmpty>
     private let onBeginEditing: Callback<Void>
     private let onEndEditing: Callback<Void>
 

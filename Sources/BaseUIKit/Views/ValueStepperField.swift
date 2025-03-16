@@ -2,7 +2,7 @@ import SwiftUI
 
 public struct ValueStepperField<Parser: SliderFieldParser>: View {
     private let title: String
-    private let value: SmartBind<Parser.Value>
+    private let value: SmartBind<Parser.Value, ExtraEmpty>
     private let step: Double
     private let onBeginEditing: Callback<Void>
     private let onEndEditing: Callback<Void>

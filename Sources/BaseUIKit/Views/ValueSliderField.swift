@@ -7,7 +7,7 @@ public protocol SliderFieldParser<Value>: FieldParser {
 
 public struct ValueSliderField<Parser: SliderFieldParser>: View {
     private let title: String
-    private let value: SmartBind<Parser.Value>
+    private let value: SmartBind<Parser.Value, ExtraEmpty>
     private let range: ClosedRange<Double>
     private let onBeginEditing: Callback<Void>
     private let onEndEditing: Callback<Void>

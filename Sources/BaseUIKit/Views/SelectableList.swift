@@ -3,7 +3,7 @@ import SwiftUI
 public struct SelectableList<Content: View, SelectionValue: Hashable & Sendable>: View {
     @State private var selection: SelectionValue? = nil
     private let content: ViewHolder<Content>
-    private let sourceValue: SmartBind<SelectionValue?>
+    private let sourceValue: SmartBind<SelectionValue?, ExtraEmpty>
     
     public init(
         selection source: SelectionValue?,

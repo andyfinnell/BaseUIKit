@@ -1,20 +1,20 @@
 import SwiftUI
 import BaseKit
 
-struct ColorChip: View {
-    let color: SmartBind<BaseKit.Color>
+struct ColorChip<Extra: Equatable & Sendable>: View {
+    let color: SmartBind<BaseKit.Color, Extra>
     @State private var isPresenting = false
     let onBeginEditing: Callback<Void>
     let onEndEditing: Callback<Void>
-
+    
     var body: some View {
         VStack(spacing: 0) {
             Triangle()
                 .fill(Color.gray)
-                .frame(width: ColorChip.width, height: ColorChip.triangleHeight)
+                .frame(width: ColorChipDimensions.width, height: ColorChipDimensions.triangleHeight)
             
             colorValue
-                .frame(width: ColorChip.width, height: ColorChip.height, alignment: .center)
+                .frame(width: ColorChipDimensions.width, height: ColorChipDimensions.height, alignment: .center)
                 .overlay(Rectangle().stroke(Color.gray, style: StrokeStyle(lineWidth: 1)))
                 .presentColorPicker(
                     isPresented: $isPresenting,
@@ -26,7 +26,9 @@ struct ColorChip: View {
             isPresenting.toggle()
         }
     }
-    
+}
+
+enum ColorChipDimensions {
     static let bodyHeight: CGFloat = height
     #if os(macOS)
     static let centerYOffset: CGFloat = 3.0
@@ -58,9 +60,9 @@ private extension ColorChip {
 import AppKit
 
 extension View {
-    func presentColorPicker(
+    func presentColorPicker<Extra: Equatable & Sendable>(
         isPresented: Binding<Bool>,
-        color: SmartBind<BaseKit.Color>,
+        color: SmartBind<BaseKit.Color, Extra>,
         onBeginEditing: Callback<Void>,
         onEndEditing: Callback<Void>
     ) -> some View {
@@ -75,9 +77,9 @@ extension View {
     }
 }
 
-struct ColorPanelModifier: ViewModifier {
+struct ColorPanelModifier<Extra: Equatable & Sendable>: ViewModifier {
     @State private var coordinator = ColorPanelCoordinator()
-    let color: SmartBind<BaseKit.Color>
+    let color: SmartBind<BaseKit.Color, Extra>
     @Binding var isPresented: Bool
     let onBeginEditing: Callback<Void>
     let onEndEditing: Callback<Void>

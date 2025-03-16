@@ -2,7 +2,7 @@ import SwiftUI
 
 public struct PopOverSliderField<Parser: SliderFieldParser>: View {
     private let title: String
-    private let value: SmartBind<Parser.Value>
+    private let value: SmartBind<Parser.Value, ExtraEmpty>
     private let range: ClosedRange<Double>
     private let onBeginEditing: Callback<Void>
     private let onEndEditing: Callback<Void>
@@ -30,7 +30,7 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
 
     init(
         _ title: String,
-        value: SmartBind<Parser.Value>,
+        value: SmartBind<Parser.Value, ExtraEmpty>,
         in range: ClosedRange<Double>,
         errorMessage: String? = nil,
         onBeginEditing: Callback<Void>,

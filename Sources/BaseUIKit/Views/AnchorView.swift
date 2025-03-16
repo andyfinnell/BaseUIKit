@@ -2,7 +2,7 @@ import SwiftUI
 import BaseKit
 
 public struct AnchorView: View {
-    private let anchor: SmartBind<BaseKit.AnchorPoint>
+    private let anchor: SmartBind<BaseKit.AnchorPoint, ExtraEmpty>
     
     public init(anchor: BaseKit.AnchorPoint, onChange: @escaping (BaseKit.AnchorPoint) -> Void) {
         self.anchor = SmartBind(anchor, onChange)
@@ -32,7 +32,7 @@ public struct AnchorView: View {
 }
 
 private struct AnchorRadioButton: View {
-    let anchor: SmartBind<BaseKit.AnchorPoint>
+    let anchor: SmartBind<BaseKit.AnchorPoint, ExtraEmpty>
     let represents: BaseKit.AnchorPoint
     
     var body: some View {

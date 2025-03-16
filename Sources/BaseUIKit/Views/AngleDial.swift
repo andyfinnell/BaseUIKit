@@ -2,7 +2,7 @@ import SwiftUI
 import BaseKit
 
 public struct AngleDial: View {
-    private let angle: SmartBind<BaseKit.Angle>
+    private let angle: SmartBind<BaseKit.Angle, ExtraEmpty>
     private let onBeginEditing: Callback<Void>
     private let onEndEditing: Callback<Void>
     @State private var isDragging = false
@@ -19,7 +19,7 @@ public struct AngleDial: View {
     }
 
     init(
-        angle: SmartBind<BaseKit.Angle>,
+        angle: SmartBind<BaseKit.Angle, ExtraEmpty>,
         onBeginEditing: Callback<Void>,
         onEndEditing: Callback<Void>
     ) {

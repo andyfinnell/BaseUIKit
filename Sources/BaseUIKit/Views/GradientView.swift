@@ -102,7 +102,7 @@ private extension GradientView {
     @ViewBuilder
     func colorStop(for stop: Stop, width: CGFloat) -> some View {
         ColorChip(
-            color: SmartBind(stop.color, {
+            color: SmartBind(stop.color, stops, {
                 var newValue = stops
                 newValue[byID: stop.id] = Stop(id: stop.id, offset: stop.offset, color: $0)
                 onChange(newValue)
@@ -140,7 +140,7 @@ private extension GradientView {
     @ViewBuilder
     var colorStopsBackground: some View {
         Color.secondary
-            .frame(height: ColorChip.bodyHeight)
+            .frame(height: ColorChipDimensions.bodyHeight)
     }
 
     @ViewBuilder
@@ -304,7 +304,7 @@ private extension GradientView {
     }
     
     func isRemoving(location: CGPoint, width: CGFloat) -> Bool {
-        let chipSize = ColorChip.bodyHeight
+        let chipSize = ColorChipDimensions.bodyHeight
         let halfChipSize = chipSize / 2.0
         return (location.x < -halfChipSize) || (location.x > (width + halfChipSize))
         || (location.y < -halfChipSize) || (location.y > (chipSize + halfChipSize))
@@ -316,7 +316,7 @@ private extension GradientView {
         } else {
             return CGPoint(
                 x: stop.offset * width,
-                y: ColorChip.centerYOffset
+                y: ColorChipDimensions.centerYOffset
             )
         }
     }

@@ -1,5 +1,7 @@
 import SwiftUI
 
+struct ExtraEmpty: Equatable, Sendable {}
+
 /// This is an implementation type. AppStateKit doesn't like working in SwiftUI.Bindings
 /// which wants to directly manipulate @State data, but to instead use closures to send
 /// Actions back through the Engine. However, closures are unstable in Equatable, despite
@@ -8,23 +10,31 @@ import SwiftUI
 /// Therefore this type wraps the current value and closure and only compares against
 /// the current value
 @MainActor
-struct SmartBind<Value: Equatable & Sendable>: Equatable, DynamicProperty {
+struct SmartBind<Value: Equatable & Sendable, Extra: Equatable & Sendable>: Equatable, DynamicProperty {
     @State private var debouncer = Debouncer<Value>()
 
     let value: Value
+    let extra: Extra
     let onChange: (Value) -> Void
     
-    init(_ value: Value, _ onChange: @escaping (Value) -> Void) {
+    init(_ value: Value, _ onChange: @escaping (Value) -> Void) where Extra == ExtraEmpty {
         self.value = value
+        self.extra = ExtraEmpty()
         self.onChange = onChange
     }
-    
-    func map(onChange: @escaping (Value, (Value) -> Void, Value) -> Void) -> SmartBind<Value> {
+
+    init(_ value: Value, _ extra: Extra, _ onChange: @escaping (Value) -> Void) {
+        self.value = value
+        self.extra = extra
+        self.onChange = onChange
+    }
+
+    func map(onChange: @escaping (Value, (Value) -> Void, Value) -> Void) -> SmartBind<Value, Extra> {
         let oldOnChange = self.onChange
         let composedOnChange: (Value) -> Void = { newValue in
             onChange(value, oldOnChange, newValue)
         }
-        return SmartBind(value, composedOnChange)
+        return SmartBind(value, extra, composedOnChange)
     }
     
     func debounce(_ action: Value) {
@@ -35,23 +45,23 @@ struct SmartBind<Value: Equatable & Sendable>: Equatable, DynamicProperty {
         debouncer.flush()
     }
 
-    nonisolated static func ==(lhs: SmartBind<Value>, rhs: SmartBind<Value>) -> Bool {
-        lhs.value == rhs.value
+    nonisolated static func ==(lhs: SmartBind<Value, Extra>, rhs: SmartBind<Value, Extra>) -> Bool {
+        lhs.value == rhs.value && lhs.extra == rhs.extra
     }
 }
 
 extension View {
     /// Keep a `SmartBind` and `Bindable` in sync with each other
-    func sync<Value: Equatable & Sendable>(_ bind: SmartBind<Value>, _ binding: Binding<Value>) -> some View {
+    func sync<Value: Equatable & Sendable, Extra: Equatable & Sendable>(_ bind: SmartBind<Value, Extra>, _ binding: Binding<Value>) -> some View {
         modifier(SmartBindModifier(bind: bind, binding: binding))
     }
 }
 
-struct SmartBindModifier<Value: Equatable & Sendable>: ViewModifier, Equatable {
-    private let bind: SmartBind<Value>
+struct SmartBindModifier<Value: Equatable & Sendable, Extra: Equatable & Sendable>: ViewModifier, Equatable {
+    private let bind: SmartBind<Value, Extra>
     private let binding: Binding<Value>
     
-    init(bind: SmartBind<Value>, binding: Binding<Value>) {
+    init(bind: SmartBind<Value, Extra>, binding: Binding<Value>) {
         self.bind = bind
         self.binding = binding
     }
@@ -72,7 +82,7 @@ struct SmartBindModifier<Value: Equatable & Sendable>: ViewModifier, Equatable {
 
     }
     
-    nonisolated static func ==(lhs: SmartBindModifier<Value>, rhs: SmartBindModifier<Value>) -> Bool {
+    nonisolated static func ==(lhs: SmartBindModifier<Value, Extra>, rhs: SmartBindModifier<Value, Extra>) -> Bool {
         lhs.bind == rhs.bind
     }
 }
