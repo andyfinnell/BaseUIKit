@@ -167,9 +167,9 @@ extension ColorPanelCoordinator: NSWindowDelegate {
 import UIKit
 
 extension View {
-    func presentColorPicker(
+    func presentColorPicker<Extra: Equatable & Sendable>(
         isPresented: Binding<Bool>,
-        color: SmartBind<BaseKit.Color>,
+        color: SmartBind<BaseKit.Color, Extra>,
         onBeginEditing: Callback<Void>,
         onEndEditing: Callback<Void>
     ) -> some View {
@@ -184,8 +184,8 @@ extension View {
     }
 }
 
-struct ColorPanelModifier: ViewModifier {
-    let color: SmartBind<BaseKit.Color>
+struct ColorPanelModifier<Extra: Equatable & Sendable>: ViewModifier {
+    let color: SmartBind<BaseKit.Color, Extra>
     @Binding var isPresented: Bool
     let onBeginEditing: Callback<Void>
     let onEndEditing: Callback<Void>
