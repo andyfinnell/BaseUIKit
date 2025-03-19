@@ -301,6 +301,9 @@ private extension CanvasDatabase {
         case let .updateHeight(height):
             self.height = height
             
+        case let .updateZoom(zoom):
+            self.zoom = zoom
+            
         case let .updateContentTransform(contentTransform):
             self.contentTransform = contentTransform
             

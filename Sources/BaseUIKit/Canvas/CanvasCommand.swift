@@ -28,6 +28,7 @@ public enum CanvasChange<ID: Hashable & Sendable>: Hashable, Sendable {
     case deleteLayer(ID)
     case reorderLayer(ID, to: CanvasIndex)
     
+    case updateZoom(Double)
     // TODO: more fine grained changes for just updating Layer properties?
 }
 
