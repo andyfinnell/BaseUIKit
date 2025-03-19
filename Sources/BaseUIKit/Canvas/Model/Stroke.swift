@@ -8,7 +8,8 @@ public struct Stroke: Hashable, Sendable {
     public let lineDash: LineDash
     public let paint: Paint
     public let opacity: Double
-
+    public let shouldScaleWithZoom: Bool
+    
     public init(
         cap: LineCap = .round,
         join: LineJoin = .miter,
@@ -16,7 +17,8 @@ public struct Stroke: Hashable, Sendable {
         width: Double = 1,
         lineDash: LineDash = .none,
         paint: Paint,
-        opacity: Double = 1.0
+        opacity: Double = 1.0,
+        shouldScaleWithZoom: Bool = true
     ) {
         self.cap = cap
         self.join = join
@@ -25,5 +27,6 @@ public struct Stroke: Hashable, Sendable {
         self.lineDash = lineDash
         self.paint = paint
         self.opacity = opacity
+        self.shouldScaleWithZoom = shouldScaleWithZoom
     }
 }

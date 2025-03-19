@@ -15,13 +15,6 @@ final class CanvasImage<ID: Hashable & Sendable> {
     
     weak var canvas: CanvasDatabase<ID>?
     
-    var anchorPoint: AnchorPoint {
-        didSet {
-            if oldValue != anchorPoint {
-                invalidate()
-            }
-        }
-    }
     var transform: Transform {
         didSet {
             if oldValue != transform {
@@ -75,7 +68,6 @@ final class CanvasImage<ID: Hashable & Sendable> {
     init(layer: ImageLayer<ID>) {
         self.layer = .image(layer)
         self.id = layer.id
-        self.anchorPoint = layer.anchorPoint
         self.transform = layer.transform
         self.opacity = layer.opacity
         self.blendMode = layer.blendMode
@@ -100,7 +92,7 @@ extension CanvasImage: CanvasObjectDrawable {
         CGRect(x: 0, y: 0, width: width, height: height)
     }
     
-    func drawSelf(_ rect: CGRect, into context: CGContext) {
+    func drawSelf(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
         // Flip the image
         let bounds = CGRect(x: 0, y: 0, width: width, height: height)
         context.translateBy(x: 0, y: bounds.height)
@@ -136,7 +128,6 @@ private extension CanvasImage {
     }
     
     func update(with layer: ImageLayer<ID>) {
-        self.anchorPoint = layer.anchorPoint
         self.transform = layer.transform
         self.opacity = layer.opacity
         self.blendMode = layer.blendMode

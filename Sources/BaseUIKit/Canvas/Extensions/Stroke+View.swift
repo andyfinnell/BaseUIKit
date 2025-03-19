@@ -2,7 +2,7 @@ import Foundation
 import CoreGraphics
 
 public extension Stroke {
-    func render(into context: CGContext) {
+    func render(into context: CGContext, atScale scale: CGFloat) {
         context.setLineWidth(width)
         context.setLineJoin(join.toCG)
         context.setLineCap(cap.toCG)
@@ -12,6 +12,9 @@ public extension Stroke {
                                 lengths: lineDash.lengths.map { CGFloat($0) })
         }
         context.setAlpha(opacity)
+        if !shouldScaleWithZoom {
+            context.scaleBy(x: 1.0 / scale, y: 1.0 / scale)
+        }
         paint.stroke(context)
     }
     

@@ -2,10 +2,10 @@ import Foundation
 import CoreGraphics
 
 public extension Decoration {
-    func render(into context: CGContext) {
+    func render(into context: CGContext, atScale scale: CGFloat) {
         switch self {
         case let .stroke(stroke):
-            stroke.render(into: context)
+            stroke.render(into: context, atScale: scale)
         case let .fill(fill):
             fill.render(into: context)
         }

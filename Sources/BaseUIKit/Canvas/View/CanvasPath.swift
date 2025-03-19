@@ -13,15 +13,7 @@ final class CanvasPath<ID: Hashable & Sendable> {
     }
     
     weak var canvas: CanvasDatabase<ID>?
-    
-    var anchorPoint: AnchorPoint {
-        didSet {
-            if oldValue != anchorPoint {
-                invalidate()
-            }
-        }
-    }
-    
+        
     var transform: Transform {
         didSet {
             if oldValue != transform {
@@ -70,12 +62,19 @@ final class CanvasPath<ID: Hashable & Sendable> {
         }
     }
 
+    var shouldScaleWithZoom: Bool {
+        didSet {
+            if oldValue != shouldScaleWithZoom {
+                invalidate()
+            }
+        }
+    }
+    
     private var renderedBezier: BezierPath
     
     init(layer: PathLayer<ID>) {
         self.layer = .path(layer)
         self.id = layer.id
-        self.anchorPoint = layer.anchorPoint
         self.transform = layer.transform
         self.opacity = layer.opacity
         self.blendMode = layer.blendMode
@@ -83,6 +82,7 @@ final class CanvasPath<ID: Hashable & Sendable> {
         self.decorations = layer.decorations
         self.bezier = layer.bezier
         self.renderedBezier = layer.bezier
+        self.shouldScaleWithZoom = layer.shouldScaleWithZoom
         renderedBezier.transform(layer.transform)
     }
     
@@ -101,10 +101,13 @@ extension CanvasPath: CanvasObjectDrawable {
         renderedBezier.cgPath.boundingBoxOfPath
     }
     
-    func drawSelf(_ rect: CGRect, into context: CGContext) {
+    func drawSelf(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+        if !shouldScaleWithZoom {
+            context.scaleBy(x: 1.0 / scale, y: 1.0 / scale)
+        }
         for decoration in decorations {
             bezier.set(in: context)
-            decoration.render(into: context)
+            decoration.render(into: context, atScale: scale)
         }
     }
     
@@ -158,12 +161,12 @@ private extension CanvasPath {
     }
     
     func update(with layer: PathLayer<ID>) {
-        self.anchorPoint = layer.anchorPoint
         self.transform = layer.transform
         self.opacity = layer.opacity
         self.blendMode = layer.blendMode
         self.decorations = layer.decorations
         self.bezier = layer.bezier
+        self.shouldScaleWithZoom = layer.shouldScaleWithZoom
         updateRenderedBezier()
     }
 

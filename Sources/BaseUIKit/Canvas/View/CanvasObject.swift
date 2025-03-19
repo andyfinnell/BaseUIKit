@@ -11,7 +11,7 @@ protocol CanvasObject<ID>: AnyObject {
     var willDrawRect: CGRect { get }
     
     func invalidate()
-    func draw(_ rect: CGRect, into context: CGContext)
+    func draw(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat)
     
     var layer: Layer<ID> { get set }
     var structurePath: BezierPath { get }
@@ -25,7 +25,6 @@ protocol CanvasObject<ID>: AnyObject {
 
 @MainActor
 protocol CanvasObjectDrawable: CanvasObject {
-    var anchorPoint: AnchorPoint { get }
     var transform: Transform { get }
     var opacity: Double { get }
     var blendMode: BlendMode { get }
@@ -33,11 +32,11 @@ protocol CanvasObjectDrawable: CanvasObject {
     var didDrawRect: CGRect { get set }
     var structureBounds: CGRect { get }
     
-    func drawSelf(_ rect: CGRect, into context: CGContext)
+    func drawSelf(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat)
 }
 
 extension CanvasObjectDrawable {
-    func draw(_ rect: CGRect, into context: CGContext) {
+    func draw(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
         guard willDrawRect.intersects(rect) else {
             return
         }
@@ -57,7 +56,7 @@ extension CanvasObjectDrawable {
         let affineTransform = transform.toCG
         context.concatenate(affineTransform)
         
-        drawSelf(rect, into: context)
+        drawSelf(rect, into: context, atScale: scale)
         
         context.endTransparencyLayer()
         context.restoreGState()

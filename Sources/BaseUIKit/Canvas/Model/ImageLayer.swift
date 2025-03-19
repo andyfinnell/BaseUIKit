@@ -3,7 +3,6 @@ import BaseKit
 
 public struct ImageLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiable {
     public let id: ID
-    public let anchorPoint: AnchorPoint
     public let transform: Transform
     public let opacity: Double
     public let blendMode: BlendMode
@@ -14,7 +13,6 @@ public struct ImageLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifia
 
     public init(
         id: ID,
-        anchorPoint: AnchorPoint,
         transform: Transform,
         opacity: Double,
         blendMode: BlendMode,
@@ -24,7 +22,6 @@ public struct ImageLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifia
         imageData: Data
     ) {
         self.id = id
-        self.anchorPoint = anchorPoint
         self.transform = transform
         self.opacity = opacity
         self.blendMode = blendMode

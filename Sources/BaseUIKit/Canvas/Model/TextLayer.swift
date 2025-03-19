@@ -4,7 +4,6 @@ import BaseKit
 
 public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiable {
     public let id: ID
-    public let anchorPoint: AnchorPoint
     public let transform: Transform
     public let opacity: Double
     public let blendMode: BlendMode
@@ -16,7 +15,6 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
 
     public init(
         id: ID,
-        anchorPoint: AnchorPoint,
         transform: Transform,
         opacity: Double,
         blendMode: BlendMode,
@@ -27,7 +25,6 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         width: Double
     ) {
         self.id = id
-        self.anchorPoint = anchorPoint
         self.transform = transform
         self.opacity = opacity
         self.blendMode = blendMode

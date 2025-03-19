@@ -23,13 +23,6 @@ final class CanvasText<ID: Hashable & Sendable> {
     
     weak var canvas: CanvasDatabase<ID>?
     
-    var anchorPoint: BaseKit.AnchorPoint {
-        didSet {
-            if oldValue != anchorPoint {
-                invalidate()
-            }
-        }
-    }
     var transform: Transform {
         didSet {
             if oldValue != transform {
@@ -95,7 +88,6 @@ final class CanvasText<ID: Hashable & Sendable> {
     init(layer: TextLayer<ID>) {
         self.layer = .text(layer)
         self.id = layer.id
-        self.anchorPoint = layer.anchorPoint
         self.transform = layer.transform
         self.opacity = layer.opacity
         self.blendMode = layer.blendMode
@@ -175,7 +167,7 @@ extension CanvasText: CanvasObjectDrawable {
         }
     }
 
-    func drawSelf(_ rect: CGRect, into context: CGContext) {
+    func drawSelf(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
         guard !runs.isEmpty else {
             return
         }
@@ -185,7 +177,7 @@ extension CanvasText: CanvasObjectDrawable {
         
         for decoration in decorations {
             setPath(path, with: bounds, in: context)
-            decoration.render(into: context)
+            decoration.render(into: context, atScale: scale)
         }
     }
     
@@ -215,7 +207,6 @@ private extension CanvasText {
     }
     
     func update(with layer: TextLayer<ID>) {
-        self.anchorPoint = layer.anchorPoint
         self.transform = layer.transform
         self.opacity = layer.opacity
         self.blendMode = layer.blendMode

@@ -117,7 +117,7 @@ public final class CanvasDatabase<ID: Hashable & Sendable> {
         drawBackground(intersectInDocumentCoords, in: context)
         context.concatenate(contentAffineTransform)
         for object in objectsInOrder {
-            object.draw(intersectInDocumentCoords, into: context)
+            object.draw(intersectInDocumentCoords, into: context, atScale: zoom)
         }
         
         context.restoreGState()
