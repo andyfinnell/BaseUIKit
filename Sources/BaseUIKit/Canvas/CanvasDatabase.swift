@@ -255,6 +255,15 @@ public extension CanvasDatabase {
     func structurePaths(byIDs ids: [ID]) -> [BezierPath] {
         ids.compactMap { objectById[$0] }.map { $0.structurePath }
     }
+    
+    func effectBounds(ofIDs ids: [ID]) -> Rect {
+        let cgRect = ids.compactMap { objectById[$0] }
+            .map { $0.willDrawRect }
+            .reduce(into: CGRect.zero) { sum, rect in
+                sum == .zero ? rect : sum.union(rect)
+            }
+        return Rect(cgRect)
+    }
 }
 
 private extension CanvasDatabase {
