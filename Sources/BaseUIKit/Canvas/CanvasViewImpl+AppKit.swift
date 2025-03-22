@@ -2,6 +2,49 @@
 import AppKit
 import BaseKit
 
+public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
+    let canvasView: CanvasViewImpl<ID>
+    
+    init(
+        database: CanvasDatabase<ID>,
+        onDimensionsChanged: ((CanvasViewDimensions) -> Void)?,
+        onEvent: ((Event) -> Void)?
+    ) {
+        canvasView = CanvasViewImpl(
+            database: database,
+            onDimensionsChanged: onDimensionsChanged,
+            onEvent: onEvent
+        )
+        super.init(frame: .zero)
+        
+        canvasView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(canvasView)
+        canvasView.widthAnchor.constraint(greaterThanOrEqualTo: widthAnchor, multiplier: 1.0).isActive = true
+        canvasView.heightAnchor.constraint(greaterThanOrEqualTo: heightAnchor, multiplier: 1.0).isActive = true
+        
+    }
+    
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    var database: CanvasDatabase<ID> {
+        get { canvasView.database }
+        set { canvasView.database = newValue }
+    }
+    
+    var onDimensionsChanged: ((CanvasViewDimensions) -> Void)? {
+        get { canvasView.onDimensionsChanged }
+        set { canvasView.onDimensionsChanged = newValue }
+    }
+    
+    var onEvent: ((Event) -> Void)? {
+        get { canvasView.onEvent }
+        set { canvasView.onEvent = newValue }
+    }
+}
+
 public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
     var database: CanvasDatabase<ID>
     var onDimensionsChanged: ((CanvasViewDimensions) -> Void)?
@@ -47,7 +90,8 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
     
     public override var frame: CGRect {
         didSet {
-            database.bounds = CGRect(origin: .zero, size: frame.size)
+            let newBounds = CGRect(origin: .zero, size: frame.size)
+            database.bounds = newBounds
         }
     }
     

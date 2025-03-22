@@ -2,6 +2,50 @@
 import UIKit
 import BaseKit
 
+public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: UIScrollView {
+    let canvasView: CanvasViewImpl<ID>
+    
+    init(
+        database: CanvasDatabase<ID>,
+        onDimensionsChanged: ((CanvasViewDimensions) -> Void)?,
+        onEvent: ((Event) -> Void)?
+    ) {
+        canvasView = CanvasViewImpl(
+            database: database,
+            onDimensionsChanged: onDimensionsChanged,
+            onEvent: onEvent
+        )
+        super.init(frame: .zero)
+        
+        canvasView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(canvasView)
+        canvasView.widthAnchor.constraint(greaterThanOrEqualTo: widthAnchor, multiplier: 1.0).isActive = true
+        canvasView.heightAnchor.constraint(greaterThanOrEqualTo: heightAnchor, multiplier: 1.0).isActive = true
+        canvasView.centerXAnchor.constraint(equalTo: centerXAnchor).isActive = true
+        canvasView.centerYAnchor.constraint(equalTo: centerYAnchor).isActive = true
+    }
+    
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    var database: CanvasDatabase<ID> {
+        get { canvasView.database }
+        set { canvasView.database = newValue }
+    }
+    
+    var onDimensionsChanged: ((CanvasViewDimensions) -> Void)? {
+        get { canvasView.onDimensionsChanged }
+        set { canvasView.onDimensionsChanged = newValue }
+    }
+    
+    var onEvent: ((Event) -> Void)? {
+        get { canvasView.onEvent }
+        set { canvasView.onEvent = newValue }
+    }
+}
+
 public final class CanvasViewImpl<ID: Hashable & Sendable>: UIView {
     var database: CanvasDatabase<ID>
     var onDimensionsChanged: ((CanvasViewDimensions) -> Void)?
@@ -30,7 +74,7 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: UIView {
     }
     
     public override var intrinsicContentSize: CGSize {
-        database.viewContentSize
+        database.contentSize
     }
     
     public override func draw(_ rect: CGRect) {
@@ -46,6 +90,13 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: UIView {
         }
     }
         
+    public override var bounds: CGRect {
+        didSet {
+            let newBounds = CGRect(origin: .zero, size: frame.size)
+            database.bounds = newBounds
+        }
+    }
+    
     public override var canBecomeFirstResponder: Bool { true }
     
     public override func becomeFirstResponder() -> Bool {
