@@ -14,7 +14,7 @@ public struct ZoomFieldParser {
         var fixedUpText = text
         fixedUpText.removeAll(where: { $0 == "%" })
         fixedUpText += "%"
-        var parsedNumber = percentFormater.number(from: fixedUpText)
+        let parsedNumber = percentFormater.number(from: fixedUpText)
         guard let parsedNumber else {
             return Result.failure(FieldParserError(message: "Invalid zoom"))
         }

@@ -259,8 +259,8 @@ public extension CanvasDatabase {
     func effectBounds(ofIDs ids: [ID]) -> Rect {
         let cgRect = ids.compactMap { objectById[$0] }
             .map { $0.willDrawRect }
-            .reduce(into: CGRect.zero) { sum, rect in
-                sum == .zero ? rect : sum.union(rect)
+            .reduce(CGRect.zero) { sum, rect in
+                (sum == .zero) ? rect : sum.union(rect)
             }
         return Rect(cgRect)
     }
