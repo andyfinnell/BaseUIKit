@@ -21,7 +21,8 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
         contentView.addSubview(canvasView)
         canvasView.widthAnchor.constraint(greaterThanOrEqualTo: widthAnchor, multiplier: 1.0).isActive = true
         canvasView.heightAnchor.constraint(greaterThanOrEqualTo: heightAnchor, multiplier: 1.0).isActive = true
-        
+        canvasView.centerXAnchor.constraint(equalTo: centerXAnchor).isActive = true
+        canvasView.centerYAnchor.constraint(equalTo: centerYAnchor).isActive = true
     }
     
     @available(*, unavailable)
