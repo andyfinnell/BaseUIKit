@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import UIKit
 import BaseKit
+import Synchronization
 
 public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: UIScrollView {
     let canvasView: CanvasViewImpl<ID>
@@ -33,8 +34,8 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: UIScrollView {
     }
     
     var database: CanvasDatabase<ID> {
-        get { canvasView.database }
-        set { canvasView.database = newValue }
+        get { canvasView.db }
+        set { canvasView.db = newValue }
     }
     
     var onDimensionsChanged: ((CanvasViewDimensions) -> Void)? {
@@ -49,22 +50,27 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: UIScrollView {
 }
 
 public final class CanvasViewImpl<ID: Hashable & Sendable>: UIView {
-    var database: CanvasDatabase<ID>
+    private let database: Mutex<CanvasDatabase<ID>>
     var onDimensionsChanged: ((CanvasViewDimensions) -> Void)?
     var onEvent: ((Event) -> Void)?
     private var primaryTouch: UITouch? = nil
     private var allTouches = Set<UITouch>()
+    
+    var db: CanvasDatabase<ID> {
+        get { database.withLock { $0 } }
+        set { database.withLock { $0 = newValue } }
+    }
     
     init(
         database: CanvasDatabase<ID>,
         onDimensionsChanged: ((CanvasViewDimensions) -> Void)?,
         onEvent: ((Event) -> Void)?
     ) {
-        self.database = database
+        self.database = Mutex(database)
         self.onDimensionsChanged = onDimensionsChanged
         self.onEvent = onEvent
         super.init(frame: .zero)
-        database.delegate = self
+        database.setDelegate(self)
         isUserInteractionEnabled = true
         isMultipleTouchEnabled = true
         isExclusiveTouch = true
@@ -75,27 +81,38 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: UIView {
         fatalError("init(coder:) has not been implemented")
     }
     
+    // This causes some methods and properties to be invoked on background threads.
+    //  If we override said methods/properties then Swift's inserted asserts about
+    //  being on the MainActor will fire and crash the app. Effectively, this means
+    //  certain overrides are actually now nonisolated.
+    public override class var layerClass: AnyClass {
+        CATiledLayer.self
+    }
+
     public override var intrinsicContentSize: CGSize {
-        database.contentSize
+        db.contentSize
     }
     
-    public override func draw(_ rect: CGRect) {
+    public nonisolated override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else {
             return
         }
-        database.drawRect(rect, into: context)
+        let db = database.withLock { $0 }
+        db.drawRect(rect, into: context)
     }
     
-    public override var frame: CGRect {
+    public nonisolated override var frame: CGRect {
         didSet {
-            database.bounds = CGRect(origin: .zero, size: frame.size)
+            let db = database.withLock { $0 }
+            db.setBounds(CGRect(origin: .zero, size: frame.size))
         }
     }
         
-    public override var bounds: CGRect {
+    public nonisolated override var bounds: CGRect {
         didSet {
             let newBounds = CGRect(origin: .zero, size: frame.size)
-            database.bounds = newBounds
+            let db = database.withLock { $0 }
+            db.setBounds(newBounds)
         }
     }
     
@@ -239,7 +256,7 @@ private extension CanvasViewImpl {
     
     func documentLocation(for touch: UITouch) -> Point {
         let locationInView = touch.preciseLocation(in: self)
-        let locationCG = database.convertViewToDocument(locationInView)
+        let locationCG = db.convertViewToDocument(locationInView)
         return Point(x: locationCG.x, y: locationCG.y)
     }
     

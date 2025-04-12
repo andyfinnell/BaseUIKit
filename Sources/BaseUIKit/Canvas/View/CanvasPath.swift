@@ -1,140 +1,155 @@
 import Foundation
 import CoreGraphics
 import BaseKit
+import Synchronization
 
-@MainActor
-final class CanvasPath<ID: Hashable & Sendable> {
+final class CanvasPath<ID: Hashable & Sendable>: Sendable {
     let id: ID
-    var didDrawRect: CGRect = .zero
+    var didDrawRect: CGRect {
+        memberData.withLock { $0.didDrawRect }
+    }
     var layer: Layer<ID> {
-        didSet {
-            updateFromLayer()
-        }
+        memberData.withLock { $0.layer }
     }
-    
-    weak var canvas: CanvasDatabase<ID>?
         
-    var transform: Transform {
-        didSet {
-            if oldValue != transform {
-                updateRenderedBezier()
-            }
-        }
-    }
-    
-    var opacity: Double {
-        didSet {
-            if oldValue != opacity {
-                invalidate()
-            }
-        }
-    }
-    
-    var blendMode: BlendMode {
-        didSet {
-            if oldValue != blendMode {
-                invalidate()
-            }
-        }
-    }
-    
-    var isVisible: Bool {
-        didSet {
-            if oldValue != isVisible {
-                invalidate()
-            }
-        }
-    }
-    
-    var decorations: [Decoration] {
-        didSet {
-            if oldValue != decorations {
-                invalidate()
-            }
-        }
-    }
-    
-    var bezier: BezierPath {
-        didSet {
-            if oldValue != bezier {
-                invalidate()
-            }
-        }
-    }
-
-    var shouldScaleWithZoom: Bool {
-        didSet {
-            if oldValue != shouldScaleWithZoom {
-                invalidate()
-            }
-        }
-    }
-    
-    private var renderedBezier: BezierPath
+    private let memberData: Mutex<MemberData>
     
     init(layer: PathLayer<ID>) {
-        self.layer = .path(layer)
         self.id = layer.id
-        self.transform = layer.transform
-        self.opacity = layer.opacity
-        self.blendMode = layer.blendMode
-        self.isVisible = layer.isVisible
-        self.decorations = layer.decorations
-        self.bezier = layer.bezier
-        self.renderedBezier = layer.bezier
-        self.shouldScaleWithZoom = layer.shouldScaleWithZoom
+        var renderedBezier = layer.bezier
         renderedBezier.transform(layer.transform)
+        memberData = Mutex(
+            MemberData(
+                didDrawRect: .zero,
+                layer: .path(layer),
+                transform: layer.transform,
+                opacity: layer.opacity,
+                blendMode: layer.blendMode,
+                isVisible: layer.isVisible,
+                decorations: layer.decorations,
+                bezier: layer.bezier,
+                shouldScaleWithZoom: layer.shouldScaleWithZoom,
+                renderedBezier: renderedBezier
+            )
+        )
     }
     
 }
 
-extension CanvasPath: CanvasObjectDrawable {
-    func invalidate() {
-        canvas?.invalidate(self)
+extension CanvasPath: CanvasObject{
+    func updateLayer(_ layer: Layer<ID>) -> Set<CanvasInvalidation> {
+        guard case let .path(pathLayer) = layer else {
+            return Set()
+        }
+        return memberData.withLock {
+            locked_update(&$0, with: pathLayer)
+        }
     }
     
     var willDrawRect: CGRect {
-        quickGlobalEffectiveBounds
-    }
-    
-    var structureBounds: CGRect {
-        renderedBezier.cgPath.boundingBoxOfPath
-    }
-    
-    func drawSelf(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
-        if !shouldScaleWithZoom {
-            context.scaleBy(x: 1.0 / scale, y: 1.0 / scale)
+        memberData.withLock {
+            locked_willDrawRect(&$0)
         }
-        for decoration in decorations {
-            bezier.set(in: context)
-            decoration.render(into: context, atScale: scale)
+    }
+        
+    func draw(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+        memberData.withLock {
+            locked_draw(&$0, in: rect, into: context, atScale: scale)
         }
     }
     
     func hitTest(_ location: CGPoint) -> Bool {
-        if hasFill && renderedBezier.cgPath.contains(location) {
-            return true
-        } else {
-            let width = strokeWidth
-            let distance = renderedBezier.distance(to: Point(location))
-            return distance <= width
+        memberData.withLock { memberData in
+            if locked_hasFill(&memberData) && memberData.renderedBezier.cgPath.contains(location) {
+                return true
+            } else {
+                let width = locked_strokeWidth(&memberData)
+                let distance = memberData.renderedBezier.distance(to: Point(location))
+                return distance <= width
+            }
         }
     }
     
     func intersects(_ rect: CGRect) -> Bool {
-        renderedBezier.cgPath.intersects(CGPath(rect: rect, transform: nil))
+        memberData.withLock {
+            $0.renderedBezier.cgPath.intersects(CGPath(rect: rect, transform: nil))
+        }
     }
     
     func contained(by rect: CGRect) -> Bool {
-        rect.contains(renderedBezier.cgPath.boundingBoxOfPath)
+        memberData.withLock {
+            rect.contains($0.renderedBezier.cgPath.boundingBoxOfPath)
+        }
     }
 
-    var structurePath: BezierPath { renderedBezier }
+    var structurePath: BezierPath {
+        memberData.withLock {
+            $0.renderedBezier
+        }
+    }
 }
 
 private extension CanvasPath {
-    var hasFill: Bool {
-        decorations.contains {
+    struct MemberData {
+        var didDrawRect: CGRect
+        var layer: Layer<ID>
+        var transform: Transform
+        var opacity: Double
+        var blendMode: BlendMode
+        var isVisible: Bool
+        var decorations: [Decoration]
+        var bezier: BezierPath
+        var shouldScaleWithZoom: Bool
+        var renderedBezier: BezierPath
+    }
+    
+    func locked_structureBounds(_ memberData: inout MemberData) -> CGRect {
+        memberData.renderedBezier.cgPath.boundingBoxOfPath
+    }
+
+    func locked_willDrawRect(_ memberData: inout MemberData) -> CGRect {
+        locked_quickGlobalEffectiveBounds(&memberData)
+    }
+
+    func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+        guard locked_willDrawRect(&memberData).intersects(rect) else {
+            return
+        }
+        
+        memberData.didDrawRect = locked_willDrawRect(&memberData)
+
+        guard memberData.isVisible else {
+            return
+        }
+
+        context.saveGState()
+        
+        context.setAlpha(memberData.opacity)
+        context.setBlendMode(memberData.blendMode.toCG)
+        context.beginTransparencyLayer(auxiliaryInfo: nil)
+        
+        let affineTransform = memberData.transform.toCG
+        context.concatenate(affineTransform)
+        
+        locked_drawSelf(&memberData, in: rect, into: context, atScale: scale)
+        
+        context.endTransparencyLayer()
+        context.restoreGState()
+    }
+
+    func locked_drawSelf(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+        if !memberData.shouldScaleWithZoom {
+            context.scaleBy(x: 1.0 / scale, y: 1.0 / scale)
+        }
+        let bezier = memberData.bezier
+        for decoration in memberData.decorations {
+            bezier.set(in: context)
+            decoration.render(into: context, atScale: scale)
+        }
+    }
+
+    func locked_hasFill(_ memberData: inout MemberData) -> Bool {
+        memberData.decorations.contains {
             if case .fill = $0 {
                 return true
             } else {
@@ -143,8 +158,8 @@ private extension CanvasPath {
         }
     }
     
-    var strokeWidth: CGFloat {
-        decorations.map {
+    func locked_strokeWidth(_ memberData: inout MemberData) -> CGFloat {
+        memberData.decorations.map {
             if case let .stroke(stroke) = $0 {
                 return stroke.width
             } else {
@@ -152,32 +167,48 @@ private extension CanvasPath {
             }
         }.max() ?? 0
     }
-    
-    func updateFromLayer() {
-        guard case let .path(pathLayer) = layer else {
-            return
+        
+    func locked_update(
+        _ memberData: inout MemberData,
+        with layer: PathLayer<ID>
+    ) -> Set<CanvasInvalidation> {
+        var didChange = false
+        memberData.layer = .path(layer)
+        if memberData.transform != layer.transform {
+            memberData.transform = layer.transform
+            didChange = true
         }
-        update(with: pathLayer)
+        if memberData.opacity != layer.opacity {
+            memberData.opacity = layer.opacity
+            didChange = true
+        }
+        if memberData.blendMode != layer.blendMode {
+            memberData.blendMode = layer.blendMode
+            didChange = true
+        }
+        // TODO: equivalent, not equal
+        if memberData.decorations != layer.decorations {
+            memberData.decorations = layer.decorations
+            didChange = true
+        }
+        if memberData.bezier != layer.bezier {
+            memberData.bezier = layer.bezier
+            memberData.renderedBezier = memberData.bezier
+            memberData.renderedBezier.transform(memberData.transform)
+            didChange = true
+        }
+        if memberData.shouldScaleWithZoom != layer.shouldScaleWithZoom {
+            memberData.shouldScaleWithZoom = layer.shouldScaleWithZoom
+            didChange = true
+        }
+        if didChange {
+            return Set([.invalidateRect(memberData.didDrawRect), .invalidateRect(locked_willDrawRect(&memberData))])
+        } else {
+            return Set()
+        }
     }
     
-    func update(with layer: PathLayer<ID>) {
-        self.transform = layer.transform
-        self.opacity = layer.opacity
-        self.blendMode = layer.blendMode
-        self.decorations = layer.decorations
-        self.bezier = layer.bezier
-        self.shouldScaleWithZoom = layer.shouldScaleWithZoom
-        updateRenderedBezier()
-    }
-
-    func updateRenderedBezier() {
-        invalidate() // old position
-        renderedBezier = bezier
-        renderedBezier.transform(transform)
-        invalidate() // new position
-    }
-    
-    var quickGlobalEffectiveBounds: CGRect {
-        decorations.effectiveBounds(for: renderedBezier.cgQuickBounds)
+    func locked_quickGlobalEffectiveBounds(_ memberData: inout MemberData) -> CGRect {
+        memberData.decorations.effectiveBounds(for: memberData.renderedBezier.cgQuickBounds)
     }
 }

@@ -2,156 +2,190 @@ import Foundation
 import CoreGraphics
 import ImageIO
 import BaseKit
+import Synchronization
 
-@MainActor
-final class CanvasImage<ID: Hashable & Sendable> {
+final class CanvasImage<ID: Hashable & Sendable>: Sendable {
     let id: ID
-    var didDrawRect: CGRect = .zero
+    var didDrawRect: CGRect { memberData.withLock { $0.didDrawRect } }
     var layer: Layer<ID> {
-        didSet {
-            updateFromLayer()
-        }
+        memberData.withLock { $0.layer }
     }
-    
-    weak var canvas: CanvasDatabase<ID>?
-    
-    var transform: Transform {
-        didSet {
-            if oldValue != transform {
-                invalidate()
-            }
-        }
-    }
-    var opacity: Double {
-        didSet {
-            if oldValue != opacity {
-                invalidate()
-            }
-        }
-    }
-    var blendMode: BlendMode {
-        didSet {
-            if oldValue != blendMode {
-                invalidate()
-            }
-        }
-    }
-    var isVisible: Bool {
-        didSet {
-            if oldValue != isVisible {
-                invalidate()
-            }
-        }
-    }
-    var width: Double {
-        didSet {
-            if oldValue != width {
-                invalidate()
-            }
-        }
-    }
-    var height: Double {
-        didSet {
-            if oldValue != height {
-                invalidate()
-            }
-        }
-    }
-    var imageData: Data {
-        didSet {
-            imageCache = nil
-        }
-    }
-    
-    private var imageCache: CGImage?
+    private let memberData: Mutex<MemberData>
     
     init(layer: ImageLayer<ID>) {
-        self.layer = .image(layer)
         self.id = layer.id
-        self.transform = layer.transform
-        self.opacity = layer.opacity
-        self.blendMode = layer.blendMode
-        self.isVisible = layer.isVisible
-        self.width = layer.width
-        self.height = layer.height
-        self.imageData = layer.imageData
+        self.memberData = Mutex(
+            MemberData(
+                didDrawRect: .zero,
+                layer: .image(layer),
+                transform: layer.transform,
+                opacity: layer.opacity,
+                blendMode: layer.blendMode,
+                isVisible: layer.isVisible,
+                width: layer.width,
+                height: layer.height,
+                imageData: layer.imageData,
+                imageCache: nil
+            )
+        )
     }
-    
 }
 
-extension CanvasImage: CanvasObjectDrawable {
-    func invalidate() {
-        canvas?.invalidate(self)
-    }
-    
-    var willDrawRect: CGRect {
-        globalBounds
-    }
-    
-    var structureBounds: CGRect {
-        CGRect(x: 0, y: 0, width: width, height: height)
-    }
-    
-    func drawSelf(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
-        // Flip the image
-        let bounds = CGRect(x: 0, y: 0, width: width, height: height)
-        context.translateBy(x: 0, y: bounds.height)
-        context.scaleBy(x: 1, y: -1)
-        if let image {
-            context.draw(image, in: bounds)
+extension CanvasImage: CanvasObject {    
+    func updateLayer(_ layer: Layer<ID>) -> Set<CanvasInvalidation> {
+        guard case let .image(imageLayer) = layer else {
+            return Set()
+        }
+        return memberData.withLock {
+            locked_update(&$0, with: imageLayer)
         }
     }
-    
+
+    var willDrawRect: CGRect {
+        memberData.withLock {
+            locked_willDrawRect(&$0)
+        }
+    }
+        
+    func draw(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+        memberData.withLock {
+            locked_draw(&$0, in: rect, into: context, atScale: scale)
+        }
+    }
+
     func hitTest(_ location: CGPoint) -> Bool {
-        globalBounds.contains(location)
+        memberData.withLock {
+            locked_globalBounds(&$0).contains(location)
+        }
     }
     
     func intersects(_ rect: CGRect) -> Bool {
-        globalBounds.intersects(rect)
+        memberData.withLock {
+            locked_globalBounds(&$0).intersects(rect)
+        }
     }
     
     func contained(by rect: CGRect) -> Bool {
-        rect.contains(globalBounds)
+        memberData.withLock {
+            rect.contains(locked_globalBounds(&$0))
+        }
     }
     
     var structurePath: BezierPath {
-        BezierPath(rect: Rect(globalBounds))
+        let globalBounds = memberData.withLock { locked_globalBounds(&$0) }
+        return BezierPath(rect: Rect(globalBounds))
     }
 }
 
 private extension CanvasImage {
-    func updateFromLayer() {
-        guard case let .image(imageLayer) = layer else {
-            return
-        }
-        update(with: imageLayer)
+    struct MemberData {
+        var didDrawRect: CGRect
+        var layer: Layer<ID>
+        var transform: Transform
+        var opacity: Double
+        var blendMode: BlendMode
+        var isVisible: Bool
+        var width: Double
+        var height: Double
+        var imageData: Data
+        var imageCache: CGImage?
     }
     
-    func update(with layer: ImageLayer<ID>) {
-        self.transform = layer.transform
-        self.opacity = layer.opacity
-        self.blendMode = layer.blendMode
-        self.width = layer.width
-        self.height = layer.height
-        self.imageData = layer.imageData
+    func locked_update(_ memberData: inout MemberData, with layer: ImageLayer<ID>) -> Set<CanvasInvalidation> {
+        var didChange = false
+        memberData.layer = .image(layer)
+        if memberData.transform != layer.transform {
+            memberData.transform = layer.transform
+            didChange = true
+        }
+        if memberData.opacity != layer.opacity {
+            memberData.opacity = layer.opacity
+            didChange = true
+        }
+        if memberData.blendMode != layer.blendMode {
+            memberData.blendMode = layer.blendMode
+            didChange = true
+        }
+        if memberData.width != layer.width {
+            memberData.width = layer.width
+            didChange = true
+        }
+        if memberData.height != layer.height {
+            memberData.height = layer.height
+            didChange = true
+        }
+        if memberData.imageData != layer.imageData {
+            memberData.imageData = layer.imageData
+            memberData.imageCache = nil
+            didChange = true
+        }
+        if didChange {
+            return Set([.invalidateRect(memberData.didDrawRect), .invalidateRect(locked_willDrawRect(&memberData))])
+        } else {
+            return Set()
+        }
     }
 
-    var image: CGImage? {
-        if let imageCache {
+    func locked_structureBounds(_ memberData: inout MemberData) -> CGRect {
+        CGRect(x: 0, y: 0, width: memberData.width, height: memberData.height)
+    }
+    
+    func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+        guard locked_willDrawRect(&memberData).intersects(rect) else {
+            return
+        }
+        
+        memberData.didDrawRect = locked_willDrawRect(&memberData)
+        
+        guard memberData.isVisible else {
+            return
+        }
+        
+        context.saveGState()
+        
+        context.setAlpha(memberData.opacity)
+        context.setBlendMode(memberData.blendMode.toCG)
+        context.beginTransparencyLayer(auxiliaryInfo: nil)
+        
+        let affineTransform = memberData.transform.toCG
+        context.concatenate(affineTransform)
+        
+        locked_drawSelf(&memberData, in: rect, into: context, atScale: scale)
+        
+        context.endTransparencyLayer()
+        context.restoreGState()
+    }
+
+    func locked_drawSelf(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+        // Flip the image
+        let bounds = CGRect(x: 0, y: 0, width: memberData.width, height: memberData.height)
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
+        if let image = locked_image(&memberData) {
+            context.draw(image, in: bounds)
+        }
+    }
+
+    func locked_image(_ memberData: inout MemberData) -> CGImage? {
+        if let imageCache = memberData.imageCache {
             return imageCache
         }
-        guard let source = CGImageSourceCreateWithData(imageData as CFData,
+        guard let source = CGImageSourceCreateWithData(memberData.imageData as CFData,
                                                        [kCGImageSourceShouldCache: true] as CFDictionary) else {
             return nil
         }
         if let image = CGImageSourceCreateImageAtIndex(source, 0, nil) {
-            imageCache = image
+            memberData.imageCache = image
             return image
         }
         return nil
     }
 
-    var globalBounds: CGRect {
-        transform.apply(to: structureBounds)
+    func locked_willDrawRect(_ memberData: inout MemberData) -> CGRect {
+        locked_globalBounds(&memberData)
+    }
+    
+    func locked_globalBounds(_ memberData: inout MemberData) -> CGRect {
+        memberData.transform.apply(to: locked_structureBounds(&memberData))
     }
 }

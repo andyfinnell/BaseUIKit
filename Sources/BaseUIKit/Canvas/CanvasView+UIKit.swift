@@ -26,7 +26,7 @@ public struct CanvasView<ID: Hashable & Sendable>: UIViewRepresentable {
     }
     
     public func updateUIView(_ nsView: CanvasViewImpl<ID>, context: Context) {
-        nsView.database = database
+        nsView.db = database
         nsView.onDimensionsChanged = onDimensionsChanged
         nsView.onEvent = onEvent
     }

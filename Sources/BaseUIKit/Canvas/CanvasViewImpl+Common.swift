@@ -5,23 +5,22 @@ import CoreGraphics
 #endif
 
 extension CanvasViewImpl: CanvasCoreViewDelegate {
-    func invalidateCanvas() {
-        setNeedsDisplay()
-    }
-    
-    func invalidateRect(_ rect: CGRect) {
-        setNeedsDisplay(rect)
-    }
-    
-    func invalidateContentSize() {
-        invalidateIntrinsicContentSize()
-        notifyDimensionsChanged()
-    }
-    
-    func invalidateCursor() {
-        #if canImport(AppKit)
-        resetCursor()
-        #endif
+    func invalidate(_ invalidations: Set<CanvasInvalidation>) {
+        for invalidation in invalidations {
+            switch invalidation {
+            case .invalidateCanvas:
+                setNeedsDisplay()
+            case let .invalidateRect(rect):
+                setNeedsDisplay(rect)
+            case .invalidateContentSize:
+                invalidateIntrinsicContentSize()
+                notifyDimensionsChanged()
+            case .invalidateCursor:
+#if canImport(AppKit)
+resetCursor()
+#endif
+            }
+        }
     }
 }
 
@@ -30,10 +29,7 @@ extension CanvasViewImpl {
         guard let onDimensionsChanged else {
             return
         }
-        let dimensions = CanvasViewDimensions(
-            size: Size(width: database.width, height: database.height),
-            screenDPI: database.screenDPI
-        )
+        let dimensions = db.dimensions
         onDimensionsChanged(dimensions)
     }
     

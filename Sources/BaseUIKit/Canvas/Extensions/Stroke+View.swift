@@ -19,12 +19,10 @@ public extension Stroke {
     }
     
     func effectiveBounds(for rect: CGRect) -> CGRect {
-        var width = ceil(width / 2.0)
-        var height = ceil(width / 2.0)
+        var width = ceil(ceil(width) / 2.0)
         if join == .miter {
             width *= miterLimit
-            height *= miterLimit
         }
-        return rect.insetBy(dx: -ceil(width), dy: -ceil(height))
+        return rect.insetBy(dx: -ceil(width), dy: -ceil(width))
     }
 }

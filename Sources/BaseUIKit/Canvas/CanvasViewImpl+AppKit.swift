@@ -1,6 +1,7 @@
 #if canImport(AppKit)
 import AppKit
 import BaseKit
+import Synchronization
 
 public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
     let canvasView: CanvasViewImpl<ID>
@@ -31,8 +32,8 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
     }
     
     var database: CanvasDatabase<ID> {
-        get { canvasView.database }
-        set { canvasView.database = newValue }
+        get { canvasView.db }
+        set { canvasView.db = newValue }
     }
     
     var onDimensionsChanged: ((CanvasViewDimensions) -> Void)? {
@@ -47,26 +48,33 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
 }
 
 public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
-    var database: CanvasDatabase<ID>
+    private let database: Mutex<CanvasDatabase<ID>>
     var onDimensionsChanged: ((CanvasViewDimensions) -> Void)?
     var onEvent: ((Event) -> Void)?
     private var trackingArea: NSTrackingArea?
     private var isCursorInside = false
+    
+    var db: CanvasDatabase<ID> {
+        get { database.withLock { $0 } }
+        set { database.withLock { $0 = newValue } }
+    }
     
     init(
         database: CanvasDatabase<ID>,
         onDimensionsChanged: ((CanvasViewDimensions) -> Void)?,
         onEvent: ((Event) -> Void)?
     ) {
-        self.database = database
+        self.database = Mutex(database)
         self.onDimensionsChanged = onDimensionsChanged
         self.onEvent = onEvent
         super.init(frame: .zero)
-        database.delegate = self
+        database.setDelegate(self)
         
         let trackingArea = makeTrackingArea()
         addTrackingArea(trackingArea)
         self.trackingArea = trackingArea
+        
+        canDrawConcurrently = true
     }
     
     @available(*, unavailable)
@@ -75,24 +83,28 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
     }
     
     public override var intrinsicContentSize: NSSize {
-        database.contentSize
+        database.withLock {
+            $0.contentSize
+        }
     }
     
-    public override func draw(_ dirtyRect: NSRect) {
+    public nonisolated override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else {
             return
         }
-        database.drawRect(dirtyRect, into: context)
+        let db = database.withLock { $0 }
+        db.drawRect(dirtyRect, into: context)
     }
     
     func setNeedsDisplay() {
         setNeedsDisplay(bounds)
     }
     
-    public override var frame: CGRect {
+    public nonisolated override var frame: CGRect {
         didSet {
             let newBounds = CGRect(origin: .zero, size: frame.size)
-            database.bounds = newBounds
+            let db = database.withLock { $0 }
+            db.setBounds(newBounds)
         }
     }
     
@@ -287,7 +299,7 @@ private extension CanvasViewImpl {
     
     func documentLocation(for event: NSEvent) -> Point {
         let locationInView = self.convert(event.locationInWindow, from: nil)
-        let locationCG = database.convertViewToDocument(locationInView)
+        let locationCG = db.convertViewToDocument(locationInView)
         return Point(x: locationCG.x, y: locationCG.y)
     }
     
@@ -383,7 +395,7 @@ private extension CanvasViewImpl {
     }
     
     func setCursor() {
-        database.cursor.set()
+        db.cursor.set()
     }
             
     func makeTrackingArea() -> NSTrackingArea {

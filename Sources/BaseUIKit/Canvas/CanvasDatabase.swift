@@ -1,139 +1,242 @@
 import Foundation
 import CoreGraphics
 import BaseKit
+import Synchronization
 
 @MainActor
 protocol CanvasCoreViewDelegate: AnyObject {
-    func invalidateCanvas()
-    func invalidateRect(_ rect: CGRect)
-    func invalidateContentSize()
-    func invalidateCursor()
+    func invalidate(_ invalidations: Set<CanvasInvalidation>)
 }
 
-@MainActor
-public final class CanvasDatabase<ID: Hashable & Sendable> {
-    private var objectsInOrder = [any CanvasObject<ID>]()
-    private var objectById = [ID: any CanvasObject<ID>]()
-    private var generatedLayersByComputedID = [ID: Generated]() // ComputedLayer.id -> generated IDs
-    private var computedLayersBasedOnID = [ID: [ComputedLayer<ID>]]() // Dependent layer id -> ComputedLayer
-    
-    var objectIDs: [ID] {
-        objectsInOrder.map { $0.id }
-    }
-    
-    var width: Double {
-        didSet {
-            if oldValue != width {
-                invalidateContentSize()
-            }
-        }
-    }
-    
-    var height: Double {
-        didSet {
-            if oldValue != height {
-                invalidateContentSize()
-            }
-        }
-    }
-    
-    public internal(set) var contentTransform: Transform {
-        didSet {
-            if oldValue != contentTransform {
-                invalidateContentSize()
-            }
-        }
-    }
-    
-    public internal(set) var backgroundColor: Color? = nil {
-        didSet {
-            if oldValue != backgroundColor {
-                invalidate()
-            }
-        }
-    }
-    
-    var renderTransparentBackground: Bool = true {
-        didSet {
-            if oldValue != renderTransparentBackground {
-                invalidate()
-            }
-        }
-    }
-    
-    weak var delegate: CanvasCoreViewDelegate?
-    
-    var screenDPI = 72.0
-    
-    var bounds: CGRect = .zero {
-        didSet {
-            invalidateContentSize()
-        }
-    }
-    
-    var zoom: CGFloat = 1.0 {
-        didSet {
-            invalidateContentSize()
-        }
-    }
-    
-    var viewContentSize: CGSize {
-        let width = max(contentSize.width, bounds.width)
-        let height = max(contentSize.height, bounds.height)
-        return CGSize(width: width, height: height)
-    }
-    
-    var contentSize: CGSize {
-        CGSize(width: width * zoom, height: height * zoom)
-    }
-    
-    private(set) var cursor = BaseUIKit.Cursor.default {
-        didSet {
-            if oldValue != cursor {
-                delegate?.invalidateCursor()
-            }
-        }
-    }
-    
+public final class CanvasDatabase<ID: Hashable & Sendable>: Sendable {
+    private let memberData: Mutex<MemberData>
+            
     public init(canvas: Canvas<ID>) {
-        self.width = canvas.width
-        self.height = canvas.height
-        self.contentTransform = canvas.contentTransform
-        self.backgroundColor = canvas.backgroundColor
-        
+        memberData = Mutex(
+            MemberData(
+                width: canvas.width,
+                height: canvas.height,
+                contentTransform: canvas.contentTransform,
+                backgroundColor: canvas.backgroundColor
+            )
+        )
         update(canvas)
     }
     
     func drawRect(_ rect: CGRect, into context: CGContext) {
-        let intersectInViewCoords = rect.intersection(bounds)
+        memberData.withLock {
+            locked_drawRect(&$0, rect, into: context)
+        }
+    }
+        
+    func update(_ canvas: Canvas<ID>) {
+        let (invalidates, delegate) = memberData.withLock {
+            var invalidates = Set<CanvasInvalidation>()
+            locked_update(&$0, canvas, invalidates: &invalidates)
+            return (invalidates, $0.delegate)
+        }
+        Task { @MainActor in
+            delegate.invalidate(invalidates)
+        }
+    }
+        
+    func convertViewToDocument(_ pointInViewCoords: CGPoint) -> CGPoint {
+        memberData.withLock {
+            locked_convertViewToDocument(&$0, pointInViewCoords)
+        }
+    }
+    
+    @MainActor
+    func setDelegate(_ delegate: CanvasCoreViewDelegate?) {
+        let realDelegate = Delegate(
+            invalidate: { @MainActor [weak delegate] invalidationSet in
+                delegate?.invalidate(invalidationSet)
+            }
+        )
+        memberData.withLock {
+            $0.delegate = realDelegate
+        }
+    }
+    
+    var bounds: CGRect {
+        memberData.withLock { $0.bounds }
+    }
+    
+    func setBounds(_ newValue: CGRect) {
+        let (invalidates, delegate) = memberData.withLock {
+            let didChange = $0.bounds != newValue
+            $0.bounds = newValue
+            var invalidates = Set<CanvasInvalidation>()
+            if didChange {
+                locked_invalidateContentSize(&$0, into: &invalidates)
+            }
+            return (invalidates, $0.delegate)
+        }
+        Task { @MainActor in
+            delegate.invalidate(invalidates)
+        }
+    }
+    
+    var contentSize: CGSize {
+        memberData.withLock {
+            CGSize(width: $0.width * $0.zoom, height: $0.height * $0.zoom)
+        }
+    }
+    
+    var cursor: BaseUIKit.Cursor {
+        memberData.withLock {
+            $0.cursor
+        }
+    }
+}
+
+public extension CanvasDatabase {
+    
+    var dimensions: CanvasViewDimensions {
+        memberData.withLock {
+            locked_dimensions(&$0)
+        }
+    }
+        
+    func perform(_ command: CanvasCommand<ID>) {
+        let (invalidates, delegate) = memberData.withLock {
+            var invalidates = Set<CanvasInvalidation>()
+            locked_perform(&$0, command, invalidates: &invalidates)
+            return (invalidates, $0.delegate)
+        }
+        Task { @MainActor in
+            delegate.invalidate(invalidates)
+        }
+    }
+    
+    func layers(_ query: CanvasQuery, including predicate: (ID) -> Bool) -> [Layer<ID>] {
+        memberData.withLock {
+            locked_layers(&$0, query, including: predicate)
+        }
+    }
+    
+    func structurePaths(byIDs ids: [ID]) -> [BezierPath] {
+        memberData.withLock {
+            locked_structurePaths(&$0, byIDs: ids)
+        }
+    }
+    
+    func effectBounds(ofIDs ids: [ID]) -> Rect {
+        memberData.withLock {
+            locked_effectBounds(&$0, ofIDs: ids)
+        }
+    }
+}
+
+private extension CanvasDatabase {
+    struct Generated {
+        let basedOnLayerID: ID
+        let layerIDs: [ID]
+    }
+
+    struct Delegate: Sendable {
+        var invalidate: @MainActor (Set<CanvasInvalidation>) -> Void = {_ in }
+    }
+    
+    struct MemberData: Sendable {
+        var objectsInOrder = [any CanvasObject<ID>]()
+        var objectById = [ID: any CanvasObject<ID>]()
+        var generatedLayersByComputedID = [ID: Generated]() // ComputedLayer.id -> generated IDs
+        var computedLayersBasedOnID = [ID: [ComputedLayer<ID>]]() // Dependent layer id -> ComputedLayer
+        var width: Double
+        var height: Double
+        var contentTransform: Transform
+        var backgroundColor: Color? = nil
+        var renderTransparentBackground: Bool = true
+        var screenDPI = 72.0
+        var bounds: CGRect = .zero
+        var zoom: CGFloat = 1.0
+        var cursor = BaseUIKit.Cursor.default
+        var delegate = Delegate()
+    }
+    
+    func locked_dimensions(_ memberData: inout MemberData) -> CanvasViewDimensions {
+        CanvasViewDimensions(
+            size: Size(width: memberData.width, height: memberData.height),
+            screenDPI: memberData.screenDPI
+        )
+    }
+        
+    func locked_perform(_ memberData: inout MemberData, _ command: CanvasCommand<ID>, invalidates: inout Set<CanvasInvalidation>) {
+        for change in command.changes {
+            locked_apply(&memberData, change, invalidates: &invalidates)
+        }
+    }
+    
+    func locked_layers(_ memberData: inout MemberData, _ query: CanvasQuery, including predicate: (ID) -> Bool) -> [Layer<ID>] {
+        switch query {
+        case .all:
+            locked_allLayers(&memberData, including: predicate)
+        case let .underLocation(location):
+            locked_layerUnderLocation(&memberData, location, including: predicate)
+        case let .intersectingBounds(bounds):
+            locked_layersIntersectingBounds(&memberData, bounds, including: predicate)
+        case let .containingBounds(bounds):
+            locked_layersContainingBounds(&memberData, bounds, including: predicate)
+        }
+    }
+    
+    func locked_structurePaths(_ memberData: inout MemberData, byIDs ids: [ID]) -> [BezierPath] {
+        ids.compactMap { memberData.objectById[$0] }.map { $0.structurePath }
+    }
+    
+    func locked_effectBounds(_ memberData: inout MemberData, ofIDs ids: [ID]) -> Rect {
+        let cgRect = ids.compactMap { memberData.objectById[$0] }
+            .map { $0.willDrawRect }
+            .reduce(CGRect.zero) { sum, rect in
+                (sum == .zero) ? rect : sum.union(rect)
+            }
+        return Rect(cgRect)
+    }
+
+    func locked_drawRect(_ memberData: inout MemberData, _ rect: CGRect, into context: CGContext) {
+        let intersectInViewCoords = rect.intersection(memberData.bounds)
 
         context.saveGState()
         context.clip(to: [intersectInViewCoords])
-        drawPasteboard(in: context)
+        locked_drawPasteboard(&memberData, in: context)
         
         // Switch to document coords
-        let intersectInDocumentCoords = intersectInViewCoords.applying(transform.inverted())
-        context.concatenate(transform)
-        drawBackground(intersectInDocumentCoords, in: context)
-        context.concatenate(contentAffineTransform)
-        for object in objectsInOrder {
-            object.draw(intersectInDocumentCoords, into: context, atScale: zoom)
+        let intersectInDocumentCoords = intersectInViewCoords
+            .applying(locked_transform(&memberData).inverted())
+        context.concatenate(locked_transform(&memberData))
+        locked_drawBackground(&memberData, intersectInDocumentCoords, in: context)
+        context.concatenate(locked_contentAffineTransform(&memberData))
+        for object in memberData.objectsInOrder {
+            object.draw(intersectInDocumentCoords, into: context, atScale: memberData.zoom)
         }
         
         context.restoreGState()
     }
         
-    func update(_ canvas: Canvas<ID>) {
-        width = canvas.width
-        height = canvas.height
-        contentTransform = canvas.contentTransform
-        backgroundColor = canvas.backgroundColor
+    func locked_update(_ memberData: inout MemberData, _ canvas: Canvas<ID>, invalidates: inout Set<CanvasInvalidation>) {
+        if memberData.width != canvas.width {
+            memberData.width = canvas.width
+            locked_invalidateContentSize(&memberData, into: &invalidates)
+        }
+        if memberData.height != canvas.height {
+            memberData.height = canvas.height
+            locked_invalidateContentSize(&memberData, into: &invalidates)
+        }
+        if memberData.contentTransform != canvas.contentTransform {
+            memberData.contentTransform = canvas.contentTransform
+            locked_invalidateContentSize(&memberData, into: &invalidates)
+        }
+        if memberData.backgroundColor != canvas.backgroundColor {
+            memberData.backgroundColor = canvas.backgroundColor
+            invalidates.insert(.invalidateCanvas)
+        }
         
-        let previousLayers = objectsInOrder.map { $0.layer }
-        let canvasLayers = flattenCanvasLayers(canvas)
+        let previousLayers = memberData.objectsInOrder.map { $0.layer }
+        let canvasLayers = locked_flattenCanvasLayers(&memberData, canvas, invalidates: &invalidates)
         let diffs = canvasLayers.difference(from: previousLayers)
         // Order is important here; flattenCanvasLayers can add to objectById
-        let existing = objectById
+        let existing = memberData.objectById
         
         for diff in diffs {
             switch diff {
@@ -141,12 +244,12 @@ public final class CanvasDatabase<ID: Hashable & Sendable> {
                 guard let canvasObject = existing[layer.id] ?? make(from: layer) else {
                     break
                 }
-                insert(canvasObject, at: .at(offset))
+                locked_insert(&memberData, canvasObject, at: .at(offset), invalidates: &invalidates)
                 
             case let .remove(offset: _, element: layer, associatedWith: _):
                 // If this is a move, `existing` will hold the object in memory
                 //  until we're done
-                remove(byID: layer.id)
+                locked_remove(&memberData, byID: layer.id, invalidates: &invalidates)
             }
         }
         
@@ -155,125 +258,38 @@ public final class CanvasDatabase<ID: Hashable & Sendable> {
             guard let object = existing[layer.id] else {
                 continue
             }
-            object.layer = layer
+            locked_transformLayerInvalidateRect(
+                &memberData,
+                from: object.updateLayer(layer),
+                into: &invalidates
+            )
         }
         
         // We've already run all computedLayers back in flattenCanvasLayers
         //  so no need to handle them here.
     }
     
-    func invalidate(_ object: any CanvasObject<ID>) {
-        update(object)
+    func locked_invalidateObject(_ memberData: inout MemberData, _ object: any CanvasObject<ID>, into invalidates: inout Set<CanvasInvalidation>) {
+        locked_invalidateRect(&memberData, object.didDrawRect, into: &invalidates)
+        locked_invalidateRect(&memberData, object.willDrawRect, into: &invalidates)
     }
     
-    func convertViewToDocument(_ pointInViewCoords: CGPoint) -> CGPoint {
-        pointInViewCoords.applying(transform.inverted())
-            .applying(contentAffineTransform)
+    func locked_convertViewToDocument(_ memberData: inout MemberData, _ pointInViewCoords: CGPoint) -> CGPoint {
+        pointInViewCoords.applying(locked_transform(&memberData).inverted())
+            .applying(locked_contentAffineTransform(&memberData))
     }
-}
 
-public extension CanvasDatabase {
-    struct Generated {
-        let basedOnLayerID: ID
-        let layerIDs: [ID]
+    func locked_allLayers(_ memberData: inout MemberData, including predicate: (ID) -> Bool) -> [Layer<ID>] {
+        memberData.objectsInOrder.reversed().filter { predicate($0.id) }.map { $0.layer }
     }
     
-    var dimensions: CanvasViewDimensions {
-        CanvasViewDimensions(
-            size: Size(width: width, height: height),
-            screenDPI: screenDPI
-        )
-    }
-    
-    func flattenCanvasLayers(_ canvas: Canvas<ID>) -> [Layer<ID>] {
-        let newLayersById = canvas.layers.reduce(into: [ID: Layer<ID>]()) {
-            $0[$1.id] = $1
-        }
-        let canvasLayers = canvas.layers.flatMap {
-            if case let .computed(computed) = $0 {
-                return flattenComputedLayer(computed, using: newLayersById)
-            } else {
-                return [$0]
-            }
-        }
-        
-        // Delete the old computed layers
-        let deletedComputedLayerIDs = generatedLayersByComputedID.keys.filter { newLayersById[$0] == nil }
-        for id in deletedComputedLayerIDs {
-            deleteLayer(by: id)
-        }
-        
-        return canvasLayers
-    }
-    
-    func flattenComputedLayer(_ computed: ComputedLayer<ID>, using layersByID: [ID: Layer<ID>]) -> [Layer<ID>] {
-        guard let basedLayer = layersByID[computed.basedOn] else {
-            return []
-        }
-        
-        // We need the basedLayer's canvasObject, which may or may or may not exist
-        //  and may or may not be up-to-date
-        guard let basedObject = objectById[basedLayer.id] ?? make(from: basedLayer) else {
-            return []
-        }
-        basedObject.layer = basedLayer
-        objectById[basedLayer.id] = basedObject // in case we just created it
-
-        let computedLayers = computed.factory(
-            basedLayer,
-            withContext: LayerFactoryContext(structurePath: basedObject.structurePath)
-        )
-        generatedLayersByComputedID[computed.id] = Generated(
-            basedOnLayerID: basedLayer.id,
-            layerIDs: computedLayers.map(\.id)
-        )
-        
-        computedLayersBasedOnID[basedLayer.id, default: []].append(computed)
-        
-        return computedLayers
-    }
-    
-    func perform(_ command: CanvasCommand<ID>) {
-        for change in command.changes {
-            apply(change)
-        }
-    }
-    
-    func layers(_ query: CanvasQuery, including predicate: (ID) -> Bool) -> [Layer<ID>] {
-        switch query {
-        case .all:
-            allLayers(including: predicate)
-        case let .underLocation(location):
-            layerUnderLocation(location, including: predicate)
-        case let .intersectingBounds(bounds):
-            layersIntersectingBounds(bounds, including: predicate)
-        case let .containingBounds(bounds):
-            layersContainingBounds(bounds, including: predicate)
-        }
-    }
-    
-    func structurePaths(byIDs ids: [ID]) -> [BezierPath] {
-        ids.compactMap { objectById[$0] }.map { $0.structurePath }
-    }
-    
-    func effectBounds(ofIDs ids: [ID]) -> Rect {
-        let cgRect = ids.compactMap { objectById[$0] }
-            .map { $0.willDrawRect }
-            .reduce(CGRect.zero) { sum, rect in
-                (sum == .zero) ? rect : sum.union(rect)
-            }
-        return Rect(cgRect)
-    }
-}
-
-private extension CanvasDatabase {
-    func allLayers(including predicate: (ID) -> Bool) -> [Layer<ID>] {
-        objectsInOrder.reversed().filter { predicate($0.id) }.map { $0.layer }
-    }
-    
-    func layerUnderLocation(_ location: Point, including predicate: (ID) -> Bool) -> [Layer<ID>] {
+    func locked_layerUnderLocation(
+        _ memberData: inout MemberData,
+        _ location: Point,
+        including predicate: (ID) -> Bool
+    ) -> [Layer<ID>] {
         let cgLocation = location.toCG
-        let foundObject = objectsInOrder.reversed().first { object in
+        let foundObject = memberData.objectsInOrder.reversed().first { object in
             predicate(object.id) && object.hitTest(cgLocation)
         }
         if let foundObject {
@@ -283,90 +299,125 @@ private extension CanvasDatabase {
         }
     }
     
-    func layersIntersectingBounds(_ bounds: Rect, including predicate: (ID) -> Bool) -> [Layer<ID>] {
+    func locked_layersIntersectingBounds(_ memberData: inout MemberData, _ bounds: Rect, including predicate: (ID) -> Bool) -> [Layer<ID>] {
         let cgBounds = bounds.toCG
-        return objectsInOrder
+        return memberData.objectsInOrder
             .filter { predicate($0.id) }
             .filter { $0.intersects(cgBounds) }
             .map { $0.layer }
     }
 
-    func layersContainingBounds(_ bounds: Rect, including predicate: (ID) -> Bool) -> [Layer<ID>] {
+    func locked_layersContainingBounds(_ memberData: inout MemberData, _ bounds: Rect, including predicate: (ID) -> Bool) -> [Layer<ID>] {
         let cgBounds = bounds.toCG
-        return objectsInOrder
+        return memberData.objectsInOrder
             .filter { predicate($0.id) }
             .filter { $0.contained(by: cgBounds) }
             .map { $0.layer }
     }
 
-    func apply(_ change: CanvasChange<ID>) {
+    func locked_apply(_ memberData: inout MemberData, _ change: CanvasChange<ID>, invalidates: inout Set<CanvasInvalidation>) {
         switch change {
         case let .updateCursor(cursor):
-            self.cursor = cursor
+            if memberData.cursor != cursor {
+                memberData.cursor = cursor
+                invalidates.insert(.invalidateCursor)
+            }
             
         case let .updateWidth(width):
-            self.width = width
+            if memberData.width != width {
+                memberData.width = width
+                locked_invalidateContentSize(&memberData, into: &invalidates)
+            }
             
         case let .updateHeight(height):
-            self.height = height
+            if memberData.height != height {
+                memberData.height = height
+                locked_invalidateContentSize(&memberData, into: &invalidates)
+            }
             
         case let .updateZoom(zoom):
-            self.zoom = zoom
+            if memberData.zoom != zoom {
+                memberData.zoom = zoom
+                locked_invalidateContentSize(&memberData, into: &invalidates)
+            }
             
         case let .updateContentTransform(contentTransform):
-            self.contentTransform = contentTransform
+            if memberData.contentTransform != contentTransform {
+                memberData.contentTransform = contentTransform
+                locked_invalidateContentSize(&memberData, into: &invalidates)
+            }
             
         case let .updateBackgroundColor(color):
-            self.backgroundColor = color
+            if memberData.backgroundColor != color {
+                memberData.backgroundColor = color
+                invalidates.insert(.invalidateCanvas)
+            }
             
         case let .upsertLayer(layer, at: index):
-            upsertLayer(layer, at: index)
+            locked_upsertLayer(&memberData, layer, at: index, invalidates: &invalidates)
             
         case let .deleteLayer(layerID):
-            deleteLayer(by: layerID)
+            locked_deleteLayer(&memberData, by: layerID, invalidates: &invalidates)
             
         case let .reorderLayer(fromID, to: toIndex):
-            reorderLayer(fromID, to: toIndex)
+            locked_reorderLayer(&memberData, fromID: fromID, to: toIndex, invalidates: &invalidates)
         }
     }
     
-    func upsertLayer(_ layer: Layer<ID>, at index: CanvasIndex) {
-        if let existing = objectById[layer.id] {
-            existing.layer = layer
-            updateComputedLayers(basedOn: layer)
+    func locked_upsertLayer(
+        _ memberData: inout MemberData,
+        _ layer: Layer<ID>,
+        at index: CanvasIndex,
+        invalidates: inout Set<CanvasInvalidation>
+    ) {
+        if let existing = memberData.objectById[layer.id] {
+            locked_transformLayerInvalidateRect(
+                &memberData,
+                from: existing.updateLayer(layer),
+                into: &invalidates
+            )
+            locked_updateComputedLayers(&memberData, basedOn: layer, invalidates: &invalidates)
         } else if let canvasObject = make(from: layer) {
-            insert(canvasObject, at: index)
+            locked_insert(&memberData, canvasObject, at: index, invalidates: &invalidates)
         } else if case let .computed(computed) = layer,
-                  let basedOn = objectById[computed.basedOn] {
+                  let basedOn = memberData.objectById[computed.basedOn] {
             let newLayers = computed.factory(
                 basedOn.layer,
                 withContext: LayerFactoryContext(structurePath: basedOn.structurePath)
             )
-            upsertComputedLayers(newLayers, for: computed, at: index)
+            locked_upsertComputedLayers(&memberData, newLayers, for: computed, at: index, invalidates: &invalidates)
             
             // Insert into the computed layers so it can be re-run later
-            if let existing = computedLayersBasedOnID[computed.basedOn] {
+            if let existing = memberData.computedLayersBasedOnID[computed.basedOn] {
                 if !existing.contains(where: { $0.id == computed.id }) {
-                    computedLayersBasedOnID[computed.basedOn] = existing + [computed]
+                    memberData.computedLayersBasedOnID[computed.basedOn] = existing + [computed]
                 }
             } else {
-                computedLayersBasedOnID[computed.basedOn] = [computed]
+                memberData.computedLayersBasedOnID[computed.basedOn] = [computed]
             }
         }
     }
     
-    func updateComputedLayers(basedOn layer: Layer<ID>) {
-        guard let computers = computedLayersBasedOnID[layer.id] else {
+    func locked_updateComputedLayers(
+        _ memberData: inout MemberData,
+        basedOn layer: Layer<ID>,
+        invalidates: inout Set<CanvasInvalidation>
+    ) {
+        guard let computers = memberData.computedLayersBasedOnID[layer.id] else {
             return
         }
 
         for computer in computers {
-            updateComputedLayer(computer)
+            locked_updateComputedLayer(&memberData, computer, invalidates: &invalidates)
         }
     }
     
-    func updateComputedLayer(_ computedLayer: ComputedLayer<ID>) {
-        guard let basedOn = objectById[computedLayer.basedOn] else {
+    func locked_updateComputedLayer(
+        _ memberData: inout MemberData,
+        _ computedLayer: ComputedLayer<ID>,
+        invalidates: inout Set<CanvasInvalidation>
+    ) {
+        guard let basedOn = memberData.objectById[computedLayer.basedOn] else {
             return
         }
         let newLayers = computedLayer.factory(
@@ -374,19 +425,24 @@ private extension CanvasDatabase {
             withContext: LayerFactoryContext(structurePath: basedOn.structurePath)
         )
         
-        upsertComputedLayers(newLayers, for: computedLayer, at: nil)
+        locked_upsertComputedLayers(&memberData, newLayers, for: computedLayer, at: nil, invalidates: &invalidates)
     }
     
-    func upsertComputedLayers(
+    func locked_upsertComputedLayers(
+        _ memberData: inout MemberData,
         _ computedLayers: [Layer<ID>],
         for layer: ComputedLayer<ID>,
-        at index: CanvasIndex?
+        at index: CanvasIndex?,
+        invalidates: inout Set<CanvasInvalidation>
     ) {
-        let previousObjects = generatedLayersByComputedID[layer.id]?.layerIDs.compactMap { objectById[$0] } ?? []
+        let previousObjects = memberData
+            .generatedLayersByComputedID[layer.id]?
+            .layerIDs
+            .compactMap { memberData.objectById[$0] } ?? []
         let previousLayers = previousObjects.map { $0.layer }
         let diffs = computedLayers.difference(from: previousLayers)
-        let existing = objectById
-        let baseIndex = resolve(index, usingExistingObjects: previousObjects)
+        let existing = memberData.objectById
+        let baseIndex = locked_resolve(&memberData, index, usingExistingObjects: previousObjects)
         
         for diff in diffs {
             switch diff {
@@ -394,12 +450,12 @@ private extension CanvasDatabase {
                 guard let canvasObject = existing[layer.id] ?? make(from: layer) else {
                     break
                 }
-                insert(canvasObject, at: .at(baseIndex + offset))
+                locked_insert(&memberData, canvasObject, at: .at(baseIndex + offset), invalidates: &invalidates)
                 
             case let .remove(offset: _, element: layer, associatedWith: _):
                 // If this is a move, `existing` will hold the object in memory
                 //  until we're done
-                remove(byID: layer.id)
+                locked_remove(&memberData, byID: layer.id, invalidates: &invalidates)
             }
         }
         
@@ -408,65 +464,131 @@ private extension CanvasDatabase {
             guard let object = existing[layer.id] else {
                 continue
             }
-            object.layer = layer
+            locked_transformLayerInvalidateRect(
+                &memberData,
+                from: object.updateLayer(layer),
+                into: &invalidates
+            )
         }
         
-        generatedLayersByComputedID[layer.id] = Generated(
+        memberData.generatedLayersByComputedID[layer.id] = Generated(
             basedOnLayerID: layer.basedOn,
             layerIDs: computedLayers.map(\.id)
         )
     }
     
-    func deleteLayer(by layerID: ID) {
-        if let generated = generatedLayersByComputedID[layerID] {
-            removeComputed(byID: layerID, generated: generated)
+    func locked_flattenCanvasLayers(
+        _ memberData: inout MemberData,
+        _ canvas: Canvas<ID>,
+        invalidates: inout Set<CanvasInvalidation>
+    ) -> [Layer<ID>] {
+        let newLayersById = canvas.layers.reduce(into: [ID: Layer<ID>]()) {
+            $0[$1.id] = $1
+        }
+        let canvasLayers = canvas.layers.flatMap {
+            if case let .computed(computed) = $0 {
+                return locked_flattenComputedLayer(&memberData, computed, using: newLayersById, invalidates: &invalidates)
+            } else {
+                return [$0]
+            }
+        }
+        
+        // Delete the old computed layers
+        let deletedComputedLayerIDs = memberData.generatedLayersByComputedID.keys.filter { newLayersById[$0] == nil }
+        for id in deletedComputedLayerIDs {
+            locked_deleteLayer(&memberData, by: id, invalidates: &invalidates)
+        }
+        
+        return canvasLayers
+    }
+    
+    func locked_flattenComputedLayer(
+        _ memberData: inout MemberData,
+        _ computed: ComputedLayer<ID>,
+        using layersByID: [ID: Layer<ID>],
+        invalidates: inout Set<CanvasInvalidation>
+    ) -> [Layer<ID>] {
+        guard let basedLayer = layersByID[computed.basedOn] else {
+            return []
+        }
+        
+        // We need the basedLayer's canvasObject, which may or may or may not exist
+        //  and may or may not be up-to-date
+        guard let basedObject = memberData.objectById[basedLayer.id] ?? make(from: basedLayer) else {
+            return []
+        }
+        locked_transformLayerInvalidateRect(
+            &memberData,
+            from: basedObject.updateLayer(basedLayer),
+            into: &invalidates
+        )
+        memberData.objectById[basedLayer.id] = basedObject // in case we just created it
+
+        let computedLayers = computed.factory(
+            basedLayer,
+            withContext: LayerFactoryContext(structurePath: basedObject.structurePath)
+        )
+        memberData.generatedLayersByComputedID[computed.id] = Generated(
+            basedOnLayerID: basedLayer.id,
+            layerIDs: computedLayers.map(\.id)
+        )
+        
+        memberData.computedLayersBasedOnID[basedLayer.id, default: []].append(computed)
+        
+        return computedLayers
+    }
+
+    func locked_deleteLayer(_ memberData: inout MemberData, by layerID: ID, invalidates: inout Set<CanvasInvalidation>) {
+        if let generated = memberData.generatedLayersByComputedID[layerID] {
+            locked_removeComputed(&memberData, byID: layerID, generated: generated, invalidates: &invalidates)
         } else {
-            remove(byID: layerID)
+            locked_remove(&memberData, byID: layerID, invalidates: &invalidates)
         }
     }
     
-    func reorderLayer(_ fromID: ID, to toIndex: CanvasIndex) {
-        if let object = objectById[fromID] {
-            invalidate(object)
+    func locked_reorderLayer(_ memberData: inout MemberData, fromID: ID, to toIndex: CanvasIndex, invalidates: inout Set<CanvasInvalidation>) {
+        if let object = memberData.objectById[fromID] {
+            locked_invalidateObject(&memberData, object, into: &invalidates)
         }
-        if let fromIndex = objectsInOrder.firstIndex(where: { $0.id == fromID }) {
-            objectsInOrder.reorder(from: fromIndex, to: resolve(toIndex))
+        if let fromIndex = memberData.objectsInOrder.firstIndex(where: { $0.id == fromID }) {
+            memberData.objectsInOrder.reorder(from: fromIndex, to: locked_resolve(&memberData, toIndex))
         }
     }
     
-    var contentOffset: CGPoint {
+    func locked_contentOffset(_ memberData: inout MemberData) -> CGPoint {
         // Center the content if there's excess space
-        let x = max(bounds.width - (width * zoom), 0.0) / 2.0
-        let y = max(bounds.height - (height * zoom), 0.0) / 2.0
+        let x = max(memberData.bounds.width - (memberData.width * memberData.zoom), 0.0) / 2.0
+        let y = max(memberData.bounds.height - (memberData.height * memberData.zoom), 0.0) / 2.0
         return CGPoint(x: x, y: y)
     }
     
-    var transform: CGAffineTransform {
-        CGAffineTransform.identity
-            .scaledBy(x: zoom, y: zoom)
+    func locked_transform(_ memberData: inout MemberData) -> CGAffineTransform {
+        let contentOffset = locked_contentOffset(&memberData)
+        return CGAffineTransform.identity
+            .scaledBy(x: memberData.zoom, y: memberData.zoom)
             .translatedBy(x: contentOffset.x, y: contentOffset.y)
     }
     
-    var contentAffineTransform: CGAffineTransform {
-        contentTransform.toCG
+    func locked_contentAffineTransform(_ memberData: inout MemberData) -> CGAffineTransform {
+        memberData.contentTransform.toCG
     }
         
-    func drawPasteboard(in context: CGContext) {
+    func locked_drawPasteboard(_ memberData: inout MemberData, in context: CGContext) {
         context.saveGState()
         context.setFillColor(Color.pasteboard.toCG)
-        context.fill([bounds])
+        context.fill([memberData.bounds])
         context.restoreGState()
     }
     
-    func drawBackground(_ dirtyRect: CGRect, in context: CGContext) {
-        let canvasRect = CGRect(x: 0, y: 0, width: width, height: height)
+    func locked_drawBackground(_ memberData: inout MemberData, _ dirtyRect: CGRect, in context: CGContext) {
+        let canvasRect = CGRect(x: 0, y: 0, width: memberData.width, height: memberData.height)
         let dirtyCanvasRect = canvasRect.intersection(dirtyRect)
         context.saveGState()
-        if let backgroundColor {
+        if let backgroundColor = memberData.backgroundColor {
             backgroundColor.setFill(in: context)
             context.fill(dirtyCanvasRect)
         } else {
-            if renderTransparentBackground {
+            if memberData.renderTransparentBackground {
                 context.drawCheckboard(dirtyCanvasRect)
             } else {
                 context.clear(dirtyCanvasRect)
@@ -475,77 +597,98 @@ private extension CanvasDatabase {
         context.restoreGState()
     }
     
-    func invalidate() {
-        delegate?.invalidateCanvas()
+    func locked_invalidateCanvas(_ memberData: inout MemberData, into invalids: inout Set<CanvasInvalidation>) {
+        invalids.insert(.invalidateCanvas)
     }
     
-    func invalidate(_ rect: CGRect) {
+    func locked_transformLayerInvalidateRect(
+        _ memberData: inout MemberData,
+        from inputs: Set<CanvasInvalidation>,
+        into invalids: inout Set<CanvasInvalidation>
+    ) {
+        for input in inputs {
+            switch input {
+            case .invalidateCanvas,
+                    .invalidateContentSize,
+                    .invalidateCursor:
+                invalids.insert(input)
+                
+            case let .invalidateRect(rawRect):
+                locked_invalidateRect(&memberData, rawRect, into: &invalids)
+            }
+        }
+    }
+    
+    func locked_invalidateRect(
+        _ memberData: inout MemberData,
+        _ rect: CGRect,
+        into invalids: inout Set<CanvasInvalidation>
+    ) {
         let invalidRect = rect
-            .applying(contentAffineTransform.inverted())
-            .applying(transform)
-        delegate?.invalidateRect(invalidRect)
+            .applying(locked_contentAffineTransform(&memberData).inverted())
+            .applying(locked_transform(&memberData))
+        invalids.insert(.invalidateRect(invalidRect))
     }
     
-    func invalidateContentSize() {
-        delegate?.invalidateContentSize()
-        delegate?.invalidateCanvas()
+    func locked_invalidateContentSize(_ memberData: inout MemberData, into invalids: inout Set<CanvasInvalidation>) {
+        invalids.insert(.invalidateContentSize)
+        invalids.insert(.invalidateCanvas)
     }
     
-    func insert(_ object: any CanvasObject<ID>, at index: CanvasIndex) {
-        let trueIndex = resolve(index)
-        objectsInOrder.insert(object, at: trueIndex)
-        objectById[object.id] = object
-        object.canvas = self
-        invalidate(object.willDrawRect)
+    func locked_insert(
+        _ memberData: inout MemberData,
+        _ object: any CanvasObject<ID>,
+        at index: CanvasIndex,
+        invalidates: inout Set<CanvasInvalidation>
+    ) {
+        let trueIndex = locked_resolve(&memberData, index)
+        memberData.objectsInOrder.insert(object, at: trueIndex)
+        memberData.objectById[object.id] = object
+        locked_invalidateRect(&memberData, object.willDrawRect, into: &invalidates)
     }
     
-    func resolve(_ index: CanvasIndex?, usingExistingObjects existingObjects: [any CanvasObject]) -> Int {
+    func locked_resolve(_ memberData: inout MemberData, _ index: CanvasIndex?, usingExistingObjects existingObjects: [any CanvasObject]) -> Int {
         if let index {
-            return resolve(index)
+            return locked_resolve(&memberData, index)
         } else if let firstObject = existingObjects.first,
-                  let firstObjectIndex = objectsInOrder.firstIndex(where: { $0 === firstObject }) {
+                  let firstObjectIndex = memberData.objectsInOrder.firstIndex(where: { $0 === firstObject }) {
             return firstObjectIndex
         } else {
-            return resolve(.last)
+            return locked_resolve(&memberData, .last)
         }
     }
     
-    func resolve(_ index: CanvasIndex) -> Int {
-        index.resolve(for: objectsInOrder)
+    func locked_resolve(_ memberData: inout MemberData, _ index: CanvasIndex) -> Int {
+        index.resolve(for: memberData.objectsInOrder)
     }
     
-    func remove(byID id: ID) {
-        removeConcrete(byID: id)
+    func locked_remove(_ memberData: inout MemberData, byID id: ID, invalidates: inout Set<CanvasInvalidation>) {
+        locked_removeConcrete(&memberData, byID: id, invalidates: &invalidates)
     }
         
-    func removeComputed(byID id: ID, generated: Generated) {
+    func locked_removeComputed(_ memberData: inout MemberData, byID id: ID, generated: Generated, invalidates: inout Set<CanvasInvalidation>) {
         for generatedID in generated.layerIDs {
-            removeConcrete(byID: generatedID)
+            locked_removeConcrete(&memberData, byID: generatedID, invalidates: &invalidates)
         }
-        generatedLayersByComputedID.removeValue(forKey: id)
-        if let computedLayers = computedLayersBasedOnID[generated.basedOnLayerID] {
-            computedLayersBasedOnID[generated.basedOnLayerID] = computedLayers.filter { $0.id != id }
+        memberData.generatedLayersByComputedID.removeValue(forKey: id)
+        if let computedLayers = memberData.computedLayersBasedOnID[generated.basedOnLayerID] {
+            memberData.computedLayersBasedOnID[generated.basedOnLayerID] = computedLayers.filter { $0.id != id }
         }
     }
 
-    func removeConcrete(byID id: ID) {
-        guard let object = objectById[id] else {
+    func locked_removeConcrete(_ memberData: inout MemberData, byID id: ID, invalidates: inout Set<CanvasInvalidation>) {
+        guard let object = memberData.objectById[id] else {
             return
         }
         // TODO: should CanvasObject store it's index for perfomance reasons?
-        let index = objectsInOrder.firstIndex(where: { $0.id == id })
+        let index = memberData.objectsInOrder.firstIndex(where: { $0.id == id })
 
-        invalidate(object.didDrawRect)
+        locked_invalidateRect(&memberData, object.didDrawRect, into: &invalidates)
         
         if let index {
-            objectsInOrder.remove(at: index)
+            memberData.objectsInOrder.remove(at: index)
         }
-        objectById.removeValue(forKey: id)
-    }
-
-    func update(_ object: any CanvasObject<ID>) {
-        invalidate(object.didDrawRect)
-        invalidate(object.willDrawRect)
+        memberData.objectById.removeValue(forKey: id)
     }
     
     func make(from layer: Layer<ID>) -> (any CanvasObject<ID>)? {
