@@ -42,21 +42,11 @@ import UIKit
 
 public extension BaseKit.Color {
     init(native: UIColor) {
-        var red: CGFloat = 0.0
-        var green: CGFloat = 0.0
-        var blue: CGFloat = 0.0
-        var alpha: CGFloat = 0.0
-        native.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-        self.init(
-            red: red,
-            green: green,
-            blue: blue,
-            alpha: alpha
-        )
+        self.init(cgColor: native.cgColor)
     }
     
     var native: UIColor {
-        UIColor(red: red, green: green, blue: blue, alpha: alpha)
+        UIColor(cgColor: toCG)
     }
 }
 #endif

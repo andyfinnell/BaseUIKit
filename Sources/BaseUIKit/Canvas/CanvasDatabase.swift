@@ -77,10 +77,27 @@ public final class CanvasDatabase<ID: Hashable & Sendable>: Sendable {
         }
     }
     
-    var contentSize: CGSize {
-        memberData.withLock {
-            CGSize(width: $0.width * $0.zoom, height: $0.height * $0.zoom)
+    var visibleSize: CGSize {
+        memberData.withLock { $0.visibleSize }
+    }
+    
+    func setVisibleSize(_ newValue: CGSize) {
+        let (invalidates, delegate) = memberData.withLock {
+            let didChange = $0.visibleSize != newValue
+            $0.visibleSize = newValue
+            var invalidates = Set<CanvasInvalidation>()
+            if didChange {
+                locked_invalidateContentSize(&$0, into: &invalidates)
+            }
+            return (invalidates, $0.delegate)
         }
+        Task { @MainActor in
+            delegate.invalidate(invalidates)
+        }
+    }
+    
+    var contentSize: CGSize {
+        memberData.withLock { locked_contentSize(&$0) }
     }
     
     var cursor: BaseUIKit.Cursor {
@@ -151,8 +168,18 @@ private extension CanvasDatabase {
         var screenDPI = 72.0
         var bounds: CGRect = .zero
         var zoom: CGFloat = 1.0
+        var visibleSize: CGSize = .zero
         var cursor = BaseUIKit.Cursor.default
         var delegate = Delegate()
+    }
+    
+    func locked_contentSize(_ memberData: inout MemberData) -> CGSize {
+        let contentOffset = locked_contentOffset(&memberData)
+        
+        return CGSize(
+            width: memberData.width * memberData.zoom + contentOffset.x * 2.0,
+            height: memberData.height * memberData.zoom + contentOffset.y * 2.0
+        )
     }
     
     func locked_dimensions(_ memberData: inout MemberData) -> CanvasViewDimensions {
@@ -341,6 +368,9 @@ private extension CanvasDatabase {
                 locked_invalidateContentSize(&memberData, into: &invalidates)
             }
             
+        case let .updateScrollPosition(scrollPosition):
+            locked_updateScrollPosition(&memberData, to: scrollPosition, into: &invalidates)
+            
         case let .updateContentTransform(contentTransform):
             if memberData.contentTransform != contentTransform {
                 memberData.contentTransform = contentTransform
@@ -362,6 +392,13 @@ private extension CanvasDatabase {
         case let .reorderLayer(fromID, to: toIndex):
             locked_reorderLayer(&memberData, fromID: fromID, to: toIndex, invalidates: &invalidates)
         }
+    }
+    
+    func locked_updateScrollPosition(_ memberData: inout MemberData, to position: Point, into invalidates: inout Set<CanvasInvalidation>) {
+        let viewPosition = position
+            .applying(locked_contentAffineTransform(&memberData).inverted())
+            .applying(locked_transform(&memberData))
+        invalidates.insert(.scrollPosition(viewPosition.toCG))
     }
     
     func locked_upsertLayer(
@@ -557,16 +594,16 @@ private extension CanvasDatabase {
     
     func locked_contentOffset(_ memberData: inout MemberData) -> CGPoint {
         // Center the content if there's excess space
-        let x = max(memberData.bounds.width - (memberData.width * memberData.zoom), 0.0) / 2.0
-        let y = max(memberData.bounds.height - (memberData.height * memberData.zoom), 0.0) / 2.0
+        let x = max(memberData.visibleSize.width - memberData.width, 0.0) / 2.0
+        let y = max(memberData.visibleSize.height - memberData.height, 0.0) / 2.0
         return CGPoint(x: x, y: y)
     }
     
     func locked_transform(_ memberData: inout MemberData) -> CGAffineTransform {
         let contentOffset = locked_contentOffset(&memberData)
         return CGAffineTransform.identity
-            .scaledBy(x: memberData.zoom, y: memberData.zoom)
             .translatedBy(x: contentOffset.x, y: contentOffset.y)
+            .scaledBy(x: memberData.zoom, y: memberData.zoom)
     }
     
     func locked_contentAffineTransform(_ memberData: inout MemberData) -> CGAffineTransform {
@@ -610,7 +647,8 @@ private extension CanvasDatabase {
             switch input {
             case .invalidateCanvas,
                     .invalidateContentSize,
-                    .invalidateCursor:
+                    .invalidateCursor,
+                    .scrollPosition:
                 invalids.insert(input)
                 
             case let .invalidateRect(rawRect):

@@ -3,8 +3,33 @@ import CoreGraphics
 import BaseKit
 
 public extension Color {
+    init(cgColor: CGColor) {
+        let sRGB = CGColorSpace(name: CGColorSpace.sRGB)
+        if let sRGB, cgColor.colorSpace != sRGB {
+            if let newColor = cgColor.converted(to: sRGB, intent: .defaultIntent, options: nil) {
+                self.init(assumeSRGB: newColor)
+            } else {
+                self.init(red: 0, green: 0, blue: 0, alpha: 1)
+            }
+        } else {
+            self.init(assumeSRGB: cgColor)
+        }
+    }
+    
+    private init(assumeSRGB: CGColor) {
+        if let components = assumeSRGB.components, components.count >= 3 {
+            if components.count > 3 {
+                self.init(red: components[0], green: components[1], blue: components[2], alpha: components[3])
+            } else {
+                self.init(red: components[0], green: components[1], blue: components[2], alpha: 1.0)
+            }
+        } else {
+            self.init(red: 0, green: 0, blue: 0, alpha: 1)
+        }
+    }
+    
     var toCG: CGColor {
-        CGColor(red: red, green: green, blue: blue, alpha: alpha)
+        CGColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
     }
     
     func setStroke(in context: CGContext) {

@@ -18,6 +18,7 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
         )
         super.init(frame: .zero)
         
+        self.documentView = canvasView
         canvasView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(canvasView)
         canvasView.widthAnchor.constraint(greaterThanOrEqualTo: widthAnchor, multiplier: 1.0).isActive = true
@@ -45,6 +46,12 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
         get { canvasView.onEvent }
         set { canvasView.onEvent = newValue }
     }
+    
+    public override var frame: CGRect {
+        didSet {
+            canvasView.visibleSize = frame.size
+        }
+    }
 }
 
 public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
@@ -53,10 +60,16 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
     var onEvent: ((Event) -> Void)?
     private var trackingArea: NSTrackingArea?
     private var isCursorInside = false
+    private var onBoundsChanged = [() -> Void]()
     
     var db: CanvasDatabase<ID> {
         get { database.withLock { $0 } }
         set { database.withLock { $0 = newValue } }
+    }
+    
+    var visibleSize: CGSize {
+        get { db.visibleSize }
+        set { db.setVisibleSize(newValue) }
     }
     
     init(
@@ -105,6 +118,10 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
             let newBounds = CGRect(origin: .zero, size: frame.size)
             let db = database.withLock { $0 }
             db.setBounds(newBounds)
+            
+            Task { @MainActor in
+                frameDidUpdate()
+            }
         }
     }
     
@@ -406,6 +423,21 @@ private extension CanvasViewImpl {
             userInfo: nil
         )
     }
+    
+    func frameDidUpdate() {
+        let blocks = onBoundsChanged
+        onBoundsChanged.removeAll()
+        for block in blocks {
+            block()
+        }
+    }
+    
+    func queueScrollPositionUpdate(_ position: CGPoint) {
+        let update = { [weak self] () -> Void in
+            self?.scroll(position)
+        }
+        onBoundsChanged.append(update)
+    }
 }
 
 extension CanvasViewImpl {
@@ -414,6 +446,18 @@ extension CanvasViewImpl {
             return
         }
         setCursor()
+    }
+    
+    func updateScrollPosition(_ position: CGPoint, needsToQueue: Bool) {
+        if needsToQueue {
+            // We can't handle this immediately because the view isn't resized yet,
+            //  but we know it's about to be. So if we try to scroll right now,
+            //  the coordinates will be wrong. So schedule a block to fire after
+            //  the bounds change.
+            queueScrollPositionUpdate(position)
+        } else {
+            scroll(position)
+        }
     }
 }
 

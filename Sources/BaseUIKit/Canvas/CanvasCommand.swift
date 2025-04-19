@@ -29,7 +29,7 @@ public enum CanvasChange<ID: Hashable & Sendable>: Hashable, Sendable {
     case reorderLayer(ID, to: CanvasIndex)
     
     case updateZoom(Double)
-    // TODO: more fine grained changes for just updating Layer properties?
+    case updateScrollPosition(Point)
 }
 
 public struct CanvasCommand<ID: Hashable & Sendable>: Hashable, Sendable {

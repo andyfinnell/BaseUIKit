@@ -5,4 +5,6 @@ enum CanvasInvalidation: Hashable, Sendable {
     case invalidateRect(CGRect)
     case invalidateContentSize
     case invalidateCursor
+    
+    case scrollPosition(CGPoint)
 }
