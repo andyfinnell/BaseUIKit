@@ -27,8 +27,6 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: UIScrollView {
 
         backgroundColor = Color.pasteboard.native
         delaysContentTouches = false
-        
-        self.panGestureRecognizer.isEnabled = false
     }
     
     @available(*, unavailable)
@@ -63,6 +61,13 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: UIScrollView {
         }
     }
 
+    public override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer == panGestureRecognizer || gestureRecognizer == pinchGestureRecognizer {
+            return false
+        } else {
+            return super.gestureRecognizerShouldBegin(gestureRecognizer)
+        }
+    }
 }
 
 public final class CanvasViewImpl<ID: Hashable & Sendable>: UIView {
@@ -71,7 +76,6 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: UIView {
     var onEvent: ((Event) -> Void)?
     private var primaryTouch: UITouch? = nil
     private var allTouches = Set<UITouch>()
-    private var onBoundsChanged = [() -> Void]()
 
     var db: CanvasDatabase<ID> {
         get { database.withLock { $0 } }
@@ -220,17 +224,9 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: UIView {
 
 extension CanvasViewImpl {
     func updateScrollPosition(_ position: CGPoint, needsToQueue: Bool) {
-        if needsToQueue {
-            // We can't handle this immediately because the view isn't resized yet,
-            //  but we know it's about to be. So if we try to scroll right now,
-            //  the coordinates will be wrong. So schedule a block to fire after
-            //  the bounds change.
-            queueScrollPositionUpdate(position)
-        } else {
-            enclosingScrollView?.setContentOffset(position, animated: true)
-        }
+        layoutIfNeeded()
+        enclosingScrollView?.setContentOffset(position, animated: false)
     }
-
 }
 
 private extension CanvasViewImpl {
@@ -246,22 +242,9 @@ private extension CanvasViewImpl {
     }
     
     func frameDidUpdate() {
-        enclosingScrollView?.contentSize = bounds.size
-        
-        let blocks = onBoundsChanged
-        onBoundsChanged.removeAll()
-        for block in blocks {
-            block()
-        }
+        enclosingScrollView?.contentSize = bounds.size        
     }
     
-    func queueScrollPositionUpdate(_ position: CGPoint) {
-        let update = { [weak self] () -> Void in
-            self?.enclosingScrollView?.setContentOffset(position, animated: true)
-        }
-        onBoundsChanged.append(update)
-    }
-
     func makeTouchEvent(
         from touches: Set<UITouch>,
         with event: UIEvent?,
