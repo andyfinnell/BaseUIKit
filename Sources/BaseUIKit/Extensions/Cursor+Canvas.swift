@@ -18,6 +18,8 @@ private extension Cursor {
         switch self {
         case .crosshair: NSCursor.crosshair
         case .default: NSCursor.arrow
+        case .zoomIn: NSCursor.zoomIn
+        case .zoomOut: NSCursor.zoomOut
         }
     }
     #endif

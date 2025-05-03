@@ -27,6 +27,8 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: UIScrollView {
 
         backgroundColor = Color.pasteboard.native
         delaysContentTouches = false
+        
+        self.panGestureRecognizer.isEnabled = false
     }
     
     @available(*, unavailable)

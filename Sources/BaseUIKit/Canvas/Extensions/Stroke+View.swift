@@ -13,9 +13,13 @@ public extension Stroke {
         }
         context.setAlpha(opacity)
         if !shouldScaleWithZoom {
+            context.saveGState()
             context.scaleBy(x: 1.0 / scale, y: 1.0 / scale)
         }
         paint.stroke(context)
+        if !shouldScaleWithZoom {
+            context.restoreGState()
+        }
     }
     
     func effectiveBounds(for rect: CGRect) -> CGRect {

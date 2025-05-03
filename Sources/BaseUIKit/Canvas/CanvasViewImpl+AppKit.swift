@@ -101,6 +101,11 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
         }
     }
     
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.initialFirstResponder = self
+    }
+    
     public nonisolated override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else {
             return
