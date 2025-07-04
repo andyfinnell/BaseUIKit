@@ -96,6 +96,15 @@ public final class CanvasDatabase<ID: Hashable & Sendable>: Sendable {
         }
     }
     
+    var visibleOffset: CGPoint {
+        get { memberData.withLock { $0.visibleOffset } }
+        set {
+            memberData.withLock {
+                $0.visibleOffset = newValue
+            }
+        }
+    }
+    
     var contentSize: CGSize {
         memberData.withLock { locked_contentSize(&$0) }
     }
@@ -145,6 +154,12 @@ public extension CanvasDatabase {
     }
 }
 
+#if os(macOS)
+private let useViewTransformForLiveZooming = false
+#else
+private let useViewTransformForLiveZooming = true
+#endif
+
 private extension CanvasDatabase {
     struct Generated {
         let basedOnLayerID: ID
@@ -167,18 +182,22 @@ private extension CanvasDatabase {
         var renderTransparentBackground: Bool = true
         var screenDPI = 72.0
         var bounds: CGRect = .zero
+        var isZooming: Bool = false
+        var zoomCenter: Point? = nil
         var zoom: CGFloat = 1.0
+        var visibleOffset: CGPoint = .zero
         var visibleSize: CGSize = .zero
         var cursor = BaseUIKit.Cursor.default
+        var liveZoom: Double = 1.0
         var delegate = Delegate()
     }
     
     func locked_contentSize(_ memberData: inout MemberData) -> CGSize {
         let contentOffset = locked_contentOffset(&memberData)
-        
+        let zoom = memberData.zoom
         return CGSize(
-            width: memberData.width * memberData.zoom + contentOffset.x * 2.0,
-            height: memberData.height * memberData.zoom + contentOffset.y * 2.0
+            width: memberData.width * zoom + contentOffset.x * 2.0,
+            height: memberData.height * zoom + contentOffset.y * 2.0
         )
     }
     
@@ -306,6 +325,11 @@ private extension CanvasDatabase {
             .applying(locked_contentAffineTransform(&memberData))
     }
 
+    func locked_convertViewToDocument(_ memberData: inout MemberData, _ rectInViewCoords: CGRect) -> CGRect {
+        rectInViewCoords.applying(locked_transform(&memberData).inverted())
+            .applying(locked_contentAffineTransform(&memberData))
+    }
+
     func locked_allLayers(_ memberData: inout MemberData, including predicate: (ID) -> Bool) -> [Layer<ID>] {
         memberData.objectsInOrder.reversed().filter { predicate($0.id) }.map { $0.layer }
     }
@@ -362,10 +386,34 @@ private extension CanvasDatabase {
                 locked_invalidateContentSize(&memberData, into: &invalidates)
             }
             
-        case let .updateZoom(zoom):
-            if memberData.zoom != zoom {
-                memberData.zoom = zoom
-                locked_invalidateContentSize(&memberData, into: &invalidates)
+        case .beginZooming:
+            memberData.isZooming = true
+            memberData.liveZoom = memberData.zoom
+            memberData.zoomCenter = locked_visibleDocumentRect(&memberData).middle
+            
+        case .endZooming:
+            if useViewTransformForLiveZooming {
+                // Force a re-render
+                locked_zoom(
+                    &memberData,
+                    to: memberData.liveZoom,
+                    centeredAt: memberData.zoomCenter,
+                    invalidates: &invalidates
+                )
+            }
+            memberData.isZooming = false
+            memberData.zoomCenter = nil
+            memberData.liveZoom = memberData.zoom
+            if useViewTransformForLiveZooming {
+                // Reset the the view transform now that we've scheduled a re-render
+                locked_invalidateLiveZoomViewTransform(&memberData, into: &invalidates)
+            }
+            
+        case let .zoomTo(zoom, centeredAt: location):
+            if memberData.isZooming && useViewTransformForLiveZooming {
+                locked_liveZoom(&memberData, to: zoom, centeredAt: location, invalidates: &invalidates)
+            } else {
+                locked_zoom(&memberData, to: zoom, centeredAt: location, invalidates: &invalidates)
             }
             
         case let .updateScrollPosition(scrollPosition):
@@ -393,6 +441,55 @@ private extension CanvasDatabase {
             locked_reorderLayer(&memberData, fromID: fromID, to: toIndex, invalidates: &invalidates)
         }
     }
+        
+    func locked_liveZoom(
+        _ memberData: inout MemberData,
+        to zoom: Double,
+        centeredAt location: Point?,
+        invalidates: inout Set<CanvasInvalidation>
+    ) {
+        let newLocation = (location ?? memberData.zoomCenter) ?? locked_visibleDocumentRect(&memberData).middle
+        if memberData.liveZoom != zoom {
+            memberData.liveZoom = zoom
+            locked_invalidateLiveZoomViewTransform(&memberData, into: &invalidates)
+            // TODO: re enable the auto scroll; is this even necessary?
+//            locked_updateScrollPositionCenter(&memberData, to: newLocation, into: &invalidates)
+        }
+    }
+
+    func locked_invalidateLiveZoomViewTransform(_ memberData: inout MemberData, into invalids: inout Set<CanvasInvalidation>) {
+        #if os(iOS)
+        if memberData.zoom == memberData.liveZoom {
+            invalids.insert(.invalidateViewScale(1.0))
+        } else {
+            let viewScale = memberData.liveZoom / memberData.zoom
+            invalids.insert(.invalidateViewScale(viewScale))
+        }
+        #endif
+    }
+    
+    func locked_zoom(
+        _ memberData: inout MemberData,
+        to zoom: Double,
+        centeredAt location: Point?,
+        invalidates: inout Set<CanvasInvalidation>
+    ) {
+        let newLocation = (location ?? memberData.zoomCenter) ?? locked_visibleDocumentRect(&memberData).middle
+        if memberData.zoom != zoom {
+            memberData.zoom = zoom
+            locked_invalidateContentSize(&memberData, into: &invalidates)
+            locked_updateScrollPositionCenter(&memberData, to: newLocation, into: &invalidates)
+        }
+    }
+        
+    func locked_visibleViewRect(_ memberData: inout MemberData) -> CGRect {
+        CGRect(origin: memberData.visibleOffset, size: memberData.visibleSize)
+    }
+    
+    func locked_visibleDocumentRect(_ memberData: inout MemberData) -> Rect {
+        let viewRectInDocumentCoords = locked_convertViewToDocument(&memberData, locked_visibleViewRect(&memberData))
+        return Rect(viewRectInDocumentCoords)
+    }
     
     func locked_updateScrollPosition(_ memberData: inout MemberData, to position: Point, into invalidates: inout Set<CanvasInvalidation>) {
         let viewPosition = position
@@ -400,7 +497,14 @@ private extension CanvasDatabase {
             .applying(locked_transform(&memberData))
         invalidates.insert(.scrollPosition(viewPosition.toCG))
     }
-    
+
+    func locked_updateScrollPositionCenter(_ memberData: inout MemberData, to position: Point, into invalidates: inout Set<CanvasInvalidation>) {
+        let viewPosition = position
+            .applying(locked_contentAffineTransform(&memberData).inverted())
+            .applying(locked_transform(&memberData))
+        invalidates.insert(.scrollPositionCenteredAt(viewPosition.toCG))
+    }
+
     func locked_upsertLayer(
         _ memberData: inout MemberData,
         _ layer: Layer<ID>,
@@ -601,9 +705,10 @@ private extension CanvasDatabase {
     
     func locked_transform(_ memberData: inout MemberData) -> CGAffineTransform {
         let contentOffset = locked_contentOffset(&memberData)
+        let zoom = memberData.zoom
         return CGAffineTransform.identity
             .translatedBy(x: contentOffset.x, y: contentOffset.y)
-            .scaledBy(x: memberData.zoom, y: memberData.zoom)
+            .scaledBy(x: zoom, y: zoom)
     }
     
     func locked_contentAffineTransform(_ memberData: inout MemberData) -> CGAffineTransform {
@@ -647,8 +752,10 @@ private extension CanvasDatabase {
             switch input {
             case .invalidateCanvas,
                     .invalidateContentSize,
+                    .invalidateViewScale,
                     .invalidateCursor,
-                    .scrollPosition:
+                    .scrollPosition,
+                    .scrollPositionCenteredAt:
                 invalids.insert(input)
                 
             case let .invalidateRect(rawRect):

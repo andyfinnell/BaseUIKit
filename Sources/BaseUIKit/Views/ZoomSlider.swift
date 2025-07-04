@@ -67,6 +67,8 @@ public struct ZoomSlider: View {
     private let value: SmartBind<ZoomFieldParser.Value, ExtraEmpty>
     private let range: ClosedRange<Double>
     private let displayRange: ClosedRange<Double>
+    private let onBeginEditing: Callback<Void>
+    private let onEndEditing: Callback<Void>
     @State private var text: String = ""
     @State private var number: Double = 0.0
     @State private var isTextEditing = false
@@ -74,11 +76,15 @@ public struct ZoomSlider: View {
 
     public init(
         value: ZoomFieldParser.Value,
-        onChange: @escaping (ZoomFieldParser.Value) -> Void
+        onChange: @escaping (ZoomFieldParser.Value) -> Void,
+        onBeginEditing: @escaping () -> Void,
+        onEndEditing: @escaping () -> Void
     ) {
         self.value = SmartBind(value, onChange)
         self.range = 0.01...64.0
         self.displayRange = -1000.0...1000.0
+        self.onBeginEditing = Callback(onBeginEditing)
+        self.onEndEditing = Callback(onEndEditing)
     }
 
     public var body: some View {
@@ -87,7 +93,14 @@ public struct ZoomSlider: View {
                 Slider(
                     value: $number,
                     in: displayRange,
-                    step: 1
+                    step: 1,
+                    onEditingChanged: { isEditing in
+                        if isEditing {
+                            onBeginEditing()
+                        } else {
+                            onEndEditing()
+                        }
+                    }
                 )
                 .frame(minWidth: 80, maxWidth: 120)
                 
@@ -181,7 +194,7 @@ private struct ZoomSliderPreview: View {
     @State private var zoom = 1.0
     
     var body: some View {
-        ZoomSlider(value: zoom, onChange: { zoom = $0 })
+        ZoomSlider(value: zoom, onChange: { zoom = $0 }, onBeginEditing: {}, onEndEditing: {})
     }
 }
 

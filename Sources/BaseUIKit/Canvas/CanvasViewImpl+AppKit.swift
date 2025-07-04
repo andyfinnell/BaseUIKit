@@ -16,15 +16,19 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
             onDimensionsChanged: onDimensionsChanged,
             onEvent: onEvent
         )
+        canvasView.translatesAutoresizingMaskIntoConstraints = false
+        
         super.init(frame: .zero)
         
-        self.documentView = canvasView
-        canvasView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(canvasView)
-        canvasView.widthAnchor.constraint(greaterThanOrEqualTo: widthAnchor, multiplier: 1.0).isActive = true
-        canvasView.heightAnchor.constraint(greaterThanOrEqualTo: heightAnchor, multiplier: 1.0).isActive = true
-        canvasView.centerXAnchor.constraint(equalTo: centerXAnchor).isActive = true
-        canvasView.centerYAnchor.constraint(equalTo: centerYAnchor).isActive = true
+        documentView = canvasView
+        backgroundColor = Color.pasteboard.native
+                
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(onScroll(_:)),
+            name: NSScrollView.didLiveScrollNotification,
+            object: self
+        )
     }
     
     @available(*, unavailable)
@@ -52,6 +56,39 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
             canvasView.visibleSize = frame.size
         }
     }
+    
+    func updateContentInsets() {
+        var contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        let contentSize = canvasView.intrinsicContentSize
+        let availableSize = bounds.size
+        if contentSize.width < availableSize.width {
+            let x = round((availableSize.width - contentSize.width) / 2.0)
+            contentInsets.left = x
+            contentInsets.right = x
+        }
+        if contentSize.height < availableSize.height {
+            let y = round((availableSize.height - contentSize.height) / 2.0)
+            contentInsets.top = y
+            contentInsets.bottom = y
+        }
+        if self.contentInsets != contentInsets {
+            self.contentInsets = contentInsets
+        }
+    }
+    
+    @objc
+    private func onScroll(_ notification: Notification) {
+        canvasView.visibleOffset = documentVisibleRect.origin
+    }
+}
+
+extension NSEdgeInsets: Equatable {
+    public static func == (lhs: NSEdgeInsets, rhs: NSEdgeInsets) -> Bool {
+        lhs.top == rhs.top
+        && lhs.bottom == rhs.bottom
+        && lhs.left == rhs.left
+        && lhs.right == rhs.right
+    }
 }
 
 public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
@@ -69,6 +106,11 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
     var visibleSize: CGSize {
         get { db.visibleSize }
         set { db.setVisibleSize(newValue) }
+    }
+    
+    var visibleOffset: CGPoint {
+        get { db.visibleOffset }
+        set { db.visibleOffset = newValue }
     }
     
     init(
@@ -235,9 +277,19 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
         addTrackingArea(trackingArea)
         self.trackingArea = trackingArea
     }
+    
+    public override func scroll(_ point: NSPoint) {
+        super.scroll(point)
+        visibleOffset = point
+    }
+
 }
 
 private extension CanvasViewImpl {
+    var canvasScrollView: CanvasScrollViewImpl<ID>? {
+        enclosingScrollView as? CanvasScrollViewImpl<ID>
+    }
+    
     func makeEvent(from event: NSEvent) -> Event? {
         switch event.type {
         case .leftMouseDown:
@@ -433,9 +485,35 @@ extension CanvasViewImpl {
         setCursor()
     }
     
-    func updateScrollPosition(_ position: CGPoint, needsToQueue: Bool) {
+    func updateScrollPosition(_ position: CGPoint) {
         layoutSubtreeIfNeeded()
         scroll(position)
+    }
+
+    func updateScrollPosition(centeredAt centeredPosition: CGPoint) {
+        layoutSubtreeIfNeeded()
+        
+        guard let availableRect = enclosingScrollView?.bounds else {
+            return
+        }
+        let contentSize = intrinsicContentSize
+        var position = CGPoint(
+            x: centeredPosition.x - (availableRect.width / 2),
+            y: centeredPosition.y - (availableRect.height / 2)
+        )
+
+        if contentSize.width <= availableRect.width {
+            position.x = 0
+        }
+        if contentSize.height <= availableRect.height {
+            position.y = 0
+        }
+
+        scroll(position)
+    }
+
+    func updateContentInsets() {
+        canvasScrollView?.updateContentInsets()
     }
 }
 

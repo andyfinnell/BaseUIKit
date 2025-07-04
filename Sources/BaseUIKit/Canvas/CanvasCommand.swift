@@ -27,8 +27,11 @@ public enum CanvasChange<ID: Hashable & Sendable>: Hashable, Sendable {
     case upsertLayer(Layer<ID>, at: CanvasIndex)
     case deleteLayer(ID)
     case reorderLayer(ID, to: CanvasIndex)
+
+    case beginZooming
+    case endZooming
+    case zoomTo(Double, centeredAt: Point?)
     
-    case updateZoom(Double)
     case updateScrollPosition(Point)
 }
 

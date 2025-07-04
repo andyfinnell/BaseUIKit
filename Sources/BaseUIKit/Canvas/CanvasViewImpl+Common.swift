@@ -7,7 +7,6 @@ import CoreGraphics
 extension CanvasViewImpl: CanvasCoreViewDelegate {
     func invalidate(_ invalidations: Set<CanvasInvalidation>) {
         // Phase 1
-        var needsToQueueScrollUpdate = false
         for invalidation in invalidations {
             switch invalidation {
             case .invalidateCanvas:
@@ -16,13 +15,19 @@ extension CanvasViewImpl: CanvasCoreViewDelegate {
                 setNeedsDisplay(rect)
             case .invalidateContentSize:
                 invalidateIntrinsicContentSize()
+                updateContentInsets()
                 notifyDimensionsChanged()
-                needsToQueueScrollUpdate = true
+            case let .invalidateViewScale(viewScale):
+                #if os(iOS)
+                updateViewScale(viewScale)
+                #endif
+                
             case .invalidateCursor:
 #if canImport(AppKit)
 resetCursor()
 #endif
-            case .scrollPosition:
+            case .scrollPosition,
+                    .scrollPositionCenteredAt:
                 break // skip for phase 1
             }
         }
@@ -33,13 +38,13 @@ resetCursor()
             case .invalidateCanvas,
              .invalidateRect,
              .invalidateContentSize,
+             .invalidateViewScale,
              .invalidateCursor:
                 break
             case let .scrollPosition(scrollPosition):
-                updateScrollPosition(
-                    scrollPosition,
-                    needsToQueue: needsToQueueScrollUpdate
-                )
+                updateScrollPosition(scrollPosition)
+            case let .scrollPositionCenteredAt(scrollPosition):
+                updateScrollPosition(centeredAt: scrollPosition)
             }
         }
 
