@@ -389,7 +389,7 @@ private extension CanvasDatabase {
         case .beginZooming:
             memberData.isZooming = true
             memberData.liveZoom = memberData.zoom
-            memberData.zoomCenter = locked_visibleDocumentRect(&memberData).middle
+            memberData.zoomCenter = locked_visibleCenterPoint(&memberData)
             
         case .endZooming:
             if useViewTransformForLiveZooming {
@@ -448,7 +448,7 @@ private extension CanvasDatabase {
         centeredAt location: Point?,
         invalidates: inout Set<CanvasInvalidation>
     ) {
-        let newLocation = (location ?? memberData.zoomCenter) ?? locked_visibleDocumentRect(&memberData).middle
+        let newLocation = (location ?? memberData.zoomCenter) ?? locked_visibleCenterPoint(&memberData)
         if memberData.liveZoom != zoom {
             memberData.liveZoom = zoom
             locked_invalidateLiveZoomViewTransform(&memberData, into: &invalidates)
@@ -474,7 +474,7 @@ private extension CanvasDatabase {
         centeredAt location: Point?,
         invalidates: inout Set<CanvasInvalidation>
     ) {
-        let newLocation = (location ?? memberData.zoomCenter) ?? locked_visibleDocumentRect(&memberData).middle
+        let newLocation = (location ?? memberData.zoomCenter) ?? locked_visibleCenterPoint(&memberData)
         if memberData.zoom != zoom {
             memberData.zoom = zoom
             locked_invalidateContentSize(&memberData, into: &invalidates)
@@ -483,12 +483,26 @@ private extension CanvasDatabase {
     }
         
     func locked_visibleViewRect(_ memberData: inout MemberData) -> CGRect {
-        CGRect(origin: memberData.visibleOffset, size: memberData.visibleSize)
+        let viewRect = CGRect(origin: memberData.visibleOffset, size: memberData.visibleSize)
+        return viewRect
     }
     
     func locked_visibleDocumentRect(_ memberData: inout MemberData) -> Rect {
         let viewRectInDocumentCoords = locked_convertViewToDocument(&memberData, locked_visibleViewRect(&memberData))
         return Rect(viewRectInDocumentCoords)
+    }
+    
+    func locked_visibleCenterPoint(_ memberData: inout MemberData) -> Point {
+        var visibleRect = locked_visibleDocumentRect(&memberData)
+        if visibleRect.width >= memberData.width {
+            visibleRect.origin.x = 0
+            visibleRect.size.width = memberData.width
+        }
+        if visibleRect.height >= memberData.height {
+            visibleRect.origin.y = 0
+            visibleRect.size.height = memberData.height
+        }
+        return visibleRect.middle
     }
     
     func locked_updateScrollPosition(_ memberData: inout MemberData, to position: Point, into invalidates: inout Set<CanvasInvalidation>) {

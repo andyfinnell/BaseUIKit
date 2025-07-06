@@ -21,6 +21,8 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
         super.init(frame: .zero)
         
         documentView = canvasView
+        
+        automaticallyAdjustsContentInsets = false
         backgroundColor = Color.pasteboard.native
                 
         NotificationCenter.default.addObserver(
