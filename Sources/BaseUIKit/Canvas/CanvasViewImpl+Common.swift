@@ -63,5 +63,9 @@ extension CanvasViewImpl {
     func sendEvent(_ event: Event) {
         onEvent?(event)
     }
+    
+    func eventCanvas() -> EventCanvas {
+        db.toEvent
+    }
 }
 

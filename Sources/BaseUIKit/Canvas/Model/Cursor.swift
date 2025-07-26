@@ -3,4 +3,6 @@ public enum Cursor: Sendable, Hashable {
     case crosshair
     case zoomIn
     case zoomOut
+    case openHand
+    case closedHand
 }

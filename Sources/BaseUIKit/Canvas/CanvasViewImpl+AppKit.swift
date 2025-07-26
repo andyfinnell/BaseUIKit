@@ -84,7 +84,7 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
     }
 }
 
-extension NSEdgeInsets: Equatable {
+extension NSEdgeInsets: @retroactive Equatable {
     public static func == (lhs: NSEdgeInsets, rhs: NSEdgeInsets) -> Bool {
         lhs.top == rhs.top
         && lhs.bottom == rhs.bottom
@@ -360,10 +360,12 @@ private extension CanvasViewImpl {
             PointerEvent(
                 state: state,
                 location: documentLocation(for: event),
+                locationInWindowCoords: Point(event.locationInWindow),
                 keyboardModifiers: keyboardModifiers(for: event),
                 when: timestamp(for: event),
                 button: button,
-                touches: Set()
+                touches: Set(),
+                canvas: eventCanvas()
             )
         )
     }
@@ -415,7 +417,8 @@ private extension CanvasViewImpl {
                 characters: event.characters ?? "",
                 charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
                 isRepeat: event.isARepeat,
-                rawKeyCode: event.keyCode
+                rawKeyCode: event.keyCode,
+                canvas: eventCanvas()
             )
         )
     }
@@ -432,7 +435,8 @@ private extension CanvasViewImpl {
                 characters: "",
                 charactersIgnoringModifiers: "",
                 isRepeat: false,
-                rawKeyCode: event.keyCode
+                rawKeyCode: event.keyCode,
+                canvas: eventCanvas()
             )
         )
     }
@@ -444,7 +448,8 @@ private extension CanvasViewImpl {
             CursorEvent(
                 location: documentLocation(for: event),
                 when: timestamp(for: event),
-                isInside: isInsideView
+                isInside: isInsideView,
+                canvas: eventCanvas()
             )
         )
     }

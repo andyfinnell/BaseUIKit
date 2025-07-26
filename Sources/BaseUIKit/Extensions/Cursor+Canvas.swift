@@ -20,6 +20,8 @@ private extension Cursor {
         case .default: NSCursor.arrow
         case .zoomIn: NSCursor.zoomIn
         case .zoomOut: NSCursor.zoomOut
+        case .openHand: NSCursor.openHand
+        case .closedHand: NSCursor.closedHand
         }
     }
     #endif

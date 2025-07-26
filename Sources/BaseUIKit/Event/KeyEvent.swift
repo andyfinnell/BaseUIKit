@@ -14,6 +14,7 @@ public struct KeyEvent: Hashable, Sendable {
     public let isRepeat: Bool
     public let rawKeyCode: UInt16
     public let keyCode: KeyCode?
+    public let canvas: EventCanvas
     
     public init(
         state: State,
@@ -22,7 +23,8 @@ public struct KeyEvent: Hashable, Sendable {
         characters: String,
         charactersIgnoringModifiers: String,
         isRepeat: Bool,
-        rawKeyCode: UInt16
+        rawKeyCode: UInt16,
+        canvas: EventCanvas
     ) {
         self.state = state
         self.keyboardModifiers = keyboardModifiers
@@ -32,5 +34,6 @@ public struct KeyEvent: Hashable, Sendable {
         self.isRepeat = isRepeat
         self.rawKeyCode = rawKeyCode
         self.keyCode = KeyCode(rawValue: rawKeyCode)
+        self.canvas = canvas
     }
 }

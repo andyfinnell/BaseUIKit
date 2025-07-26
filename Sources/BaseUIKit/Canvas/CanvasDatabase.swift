@@ -57,7 +57,7 @@ public final class CanvasDatabase<ID: Hashable & Sendable>: Sendable {
             $0.delegate = realDelegate
         }
     }
-    
+        
     var bounds: CGRect {
         memberData.withLock { $0.bounds }
     }
@@ -114,6 +114,12 @@ public final class CanvasDatabase<ID: Hashable & Sendable>: Sendable {
             $0.cursor
         }
     }
+    
+    var toEvent: EventCanvas {
+        memberData.withLock {
+            locked_toEvent(&$0)
+        }
+    }
 }
 
 public extension CanvasDatabase {
@@ -156,8 +162,10 @@ public extension CanvasDatabase {
 
 #if os(macOS)
 private let useViewTransformForLiveZooming = false
+private let areCoordinatesFlippedForWindow = true
 #else
 private let useViewTransformForLiveZooming = true
+private let areCoordinatesFlippedForWindow = false
 #endif
 
 private extension CanvasDatabase {
@@ -192,6 +200,40 @@ private extension CanvasDatabase {
         var delegate = Delegate()
     }
     
+    func locked_toEvent(_ memberData: inout MemberData) -> EventCanvas {
+            EventCanvas(
+                dimensions: locked_dimensions(&memberData),
+                zoom: locked_externalZoom(&memberData),
+                scrollPosition: locked_scrollPositionInDocumentCoords(&memberData),
+                visibleRect: locked_visibleRectInDocumentCoords(&memberData),
+                areWindowCoordsFlipped: areCoordinatesFlippedForWindow
+            )
+    }
+    
+    func locked_scrollPositionInDocumentCoords(_ memberData: inout MemberData) -> Point {
+        Point(locked_convertViewToDocument(&memberData, memberData.visibleOffset))
+    }
+    
+    func locked_visibleRectInDocumentCoords(_ memberData: inout MemberData) -> Rect {
+        Rect(
+            locked_convertViewToDocument(
+                &memberData,
+                CGRect(
+                    origin: memberData.visibleOffset,
+                    size: memberData.visibleSize
+                )
+            )
+        )
+    }
+    
+    func locked_externalZoom(_ memberData: inout MemberData) -> Double {
+        if memberData.isZooming && useViewTransformForLiveZooming {
+            memberData.liveZoom
+        } else {
+            memberData.zoom
+        }
+    }
+
     func locked_contentSize(_ memberData: inout MemberData) -> CGSize {
         let contentOffset = locked_contentOffset(&memberData)
         let zoom = memberData.zoom
@@ -448,12 +490,9 @@ private extension CanvasDatabase {
         centeredAt location: Point?,
         invalidates: inout Set<CanvasInvalidation>
     ) {
-        let newLocation = (location ?? memberData.zoomCenter) ?? locked_visibleCenterPoint(&memberData)
         if memberData.liveZoom != zoom {
             memberData.liveZoom = zoom
             locked_invalidateLiveZoomViewTransform(&memberData, into: &invalidates)
-            // TODO: re enable the auto scroll; is this even necessary?
-//            locked_updateScrollPositionCenter(&memberData, to: newLocation, into: &invalidates)
         }
     }
 
@@ -509,6 +548,8 @@ private extension CanvasDatabase {
         let viewPosition = position
             .applying(locked_contentAffineTransform(&memberData).inverted())
             .applying(locked_transform(&memberData))
+        
+        // TODO: we should do some range checking here and rein it in
         invalidates.insert(.scrollPosition(viewPosition.toCG))
     }
 

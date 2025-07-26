@@ -255,7 +255,30 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: UIView {
 extension CanvasViewImpl {
     func updateScrollPosition(_ position: CGPoint) {
         layoutIfNeeded()
-        enclosingScrollView?.setContentOffset(position, animated: false)
+        
+        guard let scrollView = enclosingScrollView else {
+            return
+        }
+        let availableRect = scrollView.bounds
+        let contentSize = intrinsicContentSize
+        var position = position
+
+        if contentSize.width <= availableRect.width {
+            position.x = 0
+        } else if position.x < 0 {
+            position.x = 0
+        } else if position.x > (contentSize.width - availableRect.width) {
+            position.x = contentSize.width - availableRect.width
+        }
+        if contentSize.height <= availableRect.height {
+            position.y = 0
+        } else if position.y < 0 {
+            position.y = 0
+        } else if position.y > (contentSize.height - availableRect.height) {
+            position.y = contentSize.height - availableRect.height
+        }
+
+        scrollView.setContentOffset(position, animated: false)
     }
     
     func updateScrollPosition(centeredAt centeredPosition: CGPoint) {
@@ -333,10 +356,12 @@ private extension CanvasViewImpl {
             PointerEvent(
                 state: state,
                 location: documentLocation(for: primaryTouch),
+                locationInWindowCoords: windowLocation(for: primaryTouch),
                 keyboardModifiers: event.map { keyboardModifiers(for: $0) } ?? [],
                 when: timestamp(for: primaryTouch),
                 button: .left,
-                touches: Set(allTouches.map { makeTouch(from: $0) })
+                touches: Set(allTouches.map { makeTouch(from: $0) }),
+                canvas: eventCanvas()
             )
         )
     }
@@ -389,6 +414,10 @@ private extension CanvasViewImpl {
         let locationInView = touch.preciseLocation(in: self)
         let locationCG = db.convertViewToDocument(locationInView)
         return Point(x: locationCG.x, y: locationCG.y)
+    }
+    
+    func windowLocation(for touch: UITouch) -> Point {
+        Point(touch.preciseLocation(in: nil))
     }
     
     func keyboardModifiers(for event: UIEvent) -> KeyboardModifiers {
