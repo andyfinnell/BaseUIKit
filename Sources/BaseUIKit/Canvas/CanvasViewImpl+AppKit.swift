@@ -327,6 +327,7 @@ private extension CanvasViewImpl {
             
         case .mouseEntered,
                 .mouseExited,
+                .mouseCancelled,
                 .appKitDefined,
                 .systemDefined,
                 .applicationDefined,
