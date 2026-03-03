@@ -29,6 +29,7 @@ final class CanvasPath<ID: Hashable & Sendable>: Sendable {
                 decorations: layer.decorations,
                 bezier: layer.bezier,
                 shouldScaleWithZoom: layer.shouldScaleWithZoom,
+                clipPath: layer.clipPath,
                 renderedBezier: renderedBezier
             )
         )
@@ -100,6 +101,7 @@ private extension CanvasPath {
         var decorations: [Decoration]
         var bezier: BezierPath
         var shouldScaleWithZoom: Bool
+        var clipPath: ClipPath?
         var renderedBezier: BezierPath
     }
     
@@ -130,7 +132,12 @@ private extension CanvasPath {
         
         let affineTransform = memberData.transform.toCG
         context.concatenate(affineTransform)
-        
+
+        if let clipPath = memberData.clipPath {
+            clipPath.path.set(in: context)
+            context.clip(using: clipPath.fillRule.toCG)
+        }
+
         locked_drawSelf(&memberData, in: rect, into: context, atScale: scale)
         
         context.endTransparencyLayer()
@@ -199,6 +206,10 @@ private extension CanvasPath {
         }
         if memberData.shouldScaleWithZoom != layer.shouldScaleWithZoom {
             memberData.shouldScaleWithZoom = layer.shouldScaleWithZoom
+            didChange = true
+        }
+        if memberData.clipPath != layer.clipPath {
+            memberData.clipPath = layer.clipPath
             didChange = true
         }
         if didChange {
