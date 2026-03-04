@@ -30,6 +30,8 @@ final class CanvasPath<ID: Hashable & Sendable>: Sendable {
                 bezier: layer.bezier,
                 shouldScaleWithZoom: layer.shouldScaleWithZoom,
                 clipPath: layer.clipPath,
+                mask: layer.mask,
+                cachedMaskImage: nil,
                 renderedBezier: renderedBezier
             )
         )
@@ -102,6 +104,8 @@ private extension CanvasPath {
         var bezier: BezierPath
         var shouldScaleWithZoom: Bool
         var clipPath: ClipPath?
+        var mask: MaskLayer?
+        var cachedMaskImage: CGImage?
         var renderedBezier: BezierPath
     }
     
@@ -136,6 +140,15 @@ private extension CanvasPath {
         if let clipPath = memberData.clipPath {
             clipPath.path.set(in: context)
             context.clip(using: clipPath.fillRule.toCG)
+        }
+
+        if let mask = memberData.mask {
+            if memberData.cachedMaskImage == nil {
+                memberData.cachedMaskImage = mask.renderToMaskImage(scale: scale)
+            }
+            if let maskImage = memberData.cachedMaskImage {
+                context.clip(to: mask.bounds.toCG, mask: maskImage)
+            }
         }
 
         locked_drawSelf(&memberData, in: rect, into: context, atScale: scale)
@@ -210,6 +223,11 @@ private extension CanvasPath {
         }
         if memberData.clipPath != layer.clipPath {
             memberData.clipPath = layer.clipPath
+            didChange = true
+        }
+        if memberData.mask != layer.mask {
+            memberData.mask = layer.mask
+            memberData.cachedMaskImage = nil
             didChange = true
         }
         if didChange {
