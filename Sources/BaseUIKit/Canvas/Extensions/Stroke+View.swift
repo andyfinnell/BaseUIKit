@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import BaseKit
 
 public extension Stroke {
     func render(into context: CGContext, atScale scale: CGFloat) {

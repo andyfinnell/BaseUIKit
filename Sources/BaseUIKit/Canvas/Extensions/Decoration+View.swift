@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import BaseKit
 
 public extension Decoration {
     func render(into context: CGContext, atScale scale: CGFloat) {

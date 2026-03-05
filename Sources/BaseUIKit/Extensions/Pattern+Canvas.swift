@@ -1,6 +1,4 @@
-import Foundation
 import CoreGraphics
-import ImageIO
 import BaseKit
 
 public extension Pattern {
@@ -38,17 +36,22 @@ public extension Pattern {
 }
 
 private extension Pattern {
-    var image: CGImage? {
-        // TODO: cache?
-        guard let source = CGImageSourceCreateWithData(imageData as CFData,
-                                                       [kCGImageSourceShouldCache: true] as CFDictionary) else {
-            return nil
+    var tileImage: CGImage? {
+        let pixelW = Int(ceil(tileWidth > 0 ? tileWidth : 1))
+        let pixelH = Int(ceil(tileHeight > 0 ? tileHeight : 1))
+
+        // Flip Y: CG bottom-up → SVG top-down, plus apply contentTransform
+        var ct = CGAffineTransform(a: 1, b: 0, c: 0, d: -1,
+                                   tx: 0, ty: CGFloat(pixelH))
+        if let contentTransform {
+            ct = contentTransform.toCG.concatenating(ct)
         }
-        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+
+        return shapes.renderToImage(width: pixelW, height: pixelH, contentTransform: ct)
     }
 
     var pattern: CGPattern? {
-        guard let image else {
+        guard let image = tileImage else {
             return nil
         }
 
