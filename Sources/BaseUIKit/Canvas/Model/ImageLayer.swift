@@ -10,6 +10,7 @@ public struct ImageLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifia
     public let width: Double
     public let height: Double
     public let imageData: Data
+    public let clipRect: Rect?
 
     public init(
         id: ID,
@@ -19,7 +20,8 @@ public struct ImageLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifia
         isVisible: Bool,
         width: Double,
         height: Double,
-        imageData: Data
+        imageData: Data,
+        clipRect: Rect? = nil
     ) {
         self.id = id
         self.transform = transform
@@ -29,5 +31,6 @@ public struct ImageLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifia
         self.width = width
         self.height = height
         self.imageData = imageData
+        self.clipRect = clipRect
     }
 }

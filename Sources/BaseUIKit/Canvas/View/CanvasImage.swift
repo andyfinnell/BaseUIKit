@@ -25,6 +25,7 @@ final class CanvasImage<ID: Hashable & Sendable>: Sendable {
                 width: layer.width,
                 height: layer.height,
                 imageData: layer.imageData,
+                clipRect: layer.clipRect,
                 imageCache: nil
             )
         )
@@ -88,6 +89,7 @@ private extension CanvasImage {
         var width: Double
         var height: Double
         var imageData: Data
+        var clipRect: Rect?
         var imageCache: CGImage?
     }
     
@@ -119,6 +121,10 @@ private extension CanvasImage {
             memberData.imageCache = nil
             didChange = true
         }
+        if memberData.clipRect != layer.clipRect {
+            memberData.clipRect = layer.clipRect
+            didChange = true
+        }
         if didChange {
             return Set([.invalidateRect(memberData.didDrawRect), .invalidateRect(locked_willDrawRect(&memberData))])
         } else {
@@ -127,7 +133,10 @@ private extension CanvasImage {
     }
 
     func locked_structureBounds(_ memberData: inout MemberData) -> CGRect {
-        CGRect(x: 0, y: 0, width: memberData.width, height: memberData.height)
+        if let clipRect = memberData.clipRect {
+            return clipRect.toCG
+        }
+        return CGRect(x: 0, y: 0, width: memberData.width, height: memberData.height)
     }
     
     func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
@@ -149,7 +158,11 @@ private extension CanvasImage {
         
         let affineTransform = memberData.transform.toCG
         context.concatenate(affineTransform)
-        
+
+        if let clipRect = memberData.clipRect {
+            context.clip(to: [clipRect.toCG])
+        }
+
         locked_drawSelf(&memberData, in: rect, into: context, atScale: scale)
         
         context.endTransparencyLayer()
