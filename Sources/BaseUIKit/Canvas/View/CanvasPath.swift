@@ -33,6 +33,7 @@ final class CanvasPath<ID: Hashable & Sendable>: Sendable {
                 mask: layer.mask,
                 cachedMaskImage: nil,
                 filter: layer.filter,
+                markers: layer.markers,
                 renderedBezier: renderedBezier
             )
         )
@@ -108,6 +109,7 @@ private extension CanvasPath {
         var mask: MaskLayer?
         var cachedMaskImage: CGImage?
         var filter: FilterLayer?
+        var markers: MarkerLayer?
         var renderedBezier: BezierPath
     }
     
@@ -173,6 +175,21 @@ private extension CanvasPath {
         for decoration in memberData.decorations {
             bezier.set(in: context)
             decoration.render(into: context, atScale: scale)
+        }
+        if let markers = memberData.markers {
+            for placement in markers.placements {
+                context.saveGState()
+                context.translateBy(
+                    x: CGFloat(placement.position.x),
+                    y: CGFloat(placement.position.y)
+                )
+                context.rotate(by: CGFloat(placement.angle))
+                context.concatenate(placement.markerTransform.toCG)
+                for shape in placement.shapes {
+                    shape.render(into: context, atScale: scale)
+                }
+                context.restoreGState()
+            }
         }
     }
 
@@ -242,6 +259,10 @@ private extension CanvasPath {
             memberData.filter = layer.filter
             didChange = true
         }
+        if memberData.markers != layer.markers {
+            memberData.markers = layer.markers
+            didChange = true
+        }
         if didChange {
             return Set([.invalidateRect(memberData.didDrawRect), .invalidateRect(locked_willDrawRect(&memberData))])
         } else {
@@ -250,6 +271,23 @@ private extension CanvasPath {
     }
     
     func locked_quickGlobalEffectiveBounds(_ memberData: inout MemberData) -> CGRect {
-        memberData.decorations.effectiveBounds(for: memberData.renderedBezier.cgQuickBounds)
+        var bounds = memberData.decorations.effectiveBounds(for: memberData.renderedBezier.cgQuickBounds)
+        if let markers = memberData.markers {
+            for placement in markers.placements {
+                for shape in placement.shapes {
+                    let shapeBounds = shape.path.quickBounds ?? .zero
+                    let markerSize = max(shapeBounds.width, shapeBounds.height)
+                    let expand = CGFloat(markerSize)
+                    let placementRect = CGRect(
+                        x: CGFloat(placement.position.x) - expand,
+                        y: CGFloat(placement.position.y) - expand,
+                        width: expand * 2,
+                        height: expand * 2
+                    )
+                    bounds = bounds.union(placementRect)
+                }
+            }
+        }
+        return bounds
     }
 }
