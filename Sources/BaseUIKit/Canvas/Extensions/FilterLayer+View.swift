@@ -119,6 +119,24 @@ private extension FilterLayer {
             return applyMerge(inputs: inputs, sourceGraphic: sourceGraphic, sourceAlpha: sourceAlpha, named: named, lastResult: lastResult)
         case let .colorMatrix(type, values):
             return applyColorMatrix(input: input, type: type, values: values)
+        case let .morphology(op, radiusX, radiusY):
+            return applyMorphology(input: input, operator: op, radiusX: radiusX, radiusY: radiusY)
+        case let .convolveMatrix(orderRows, orderCols, kernel, divisor, bias, _, _, _, _):
+            return applyConvolveMatrix(input: input, orderRows: orderRows, orderCols: orderCols, kernel: kernel, divisor: divisor, bias: bias)
+        case .tile:
+            return applyTile(input: input, extent: input.extent)
+        case let .displacementMap(scale, _, _):
+            return applyDisplacementMap(input: input, input2: input2, scale: scale)
+        case let .turbulence(type, _, _, _, _):
+            return applyTurbulence(type: type, extent: input.extent)
+        case let .filterImage(imageData):
+            return applyFilterImage(imageData: imageData, extent: input.extent)
+        case let .componentTransfer(funcR, funcG, funcB, funcA):
+            return applyComponentTransfer(input: input, funcR: funcR, funcG: funcG, funcB: funcB, funcA: funcA)
+        case let .diffuseLighting(surfaceScale, diffuseConstant, _):
+            return applyDiffuseLighting(input: input, surfaceScale: surfaceScale, diffuseConstant: diffuseConstant)
+        case let .specularLighting(surfaceScale, specularConstant, _, _):
+            return applySpecularLighting(input: input, surfaceScale: surfaceScale, specularConstant: specularConstant)
         }
     }
 
@@ -322,5 +340,176 @@ private extension FilterLayer {
         filter.aVector = CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0)
         filter.biasVector = CIVector(x: 0, y: 0, z: 0, w: 0)
         return filter.outputImage
+    }
+
+    // MARK: - Remaining Filter Primitives
+
+    func applyMorphology(input: CIImage, operator op: MorphologyOperator, radiusX: Double, radiusY: Double) -> CIImage? {
+        switch op {
+        case .erode:
+            let filter = CIFilter.morphologyMinimum()
+            filter.inputImage = input
+            filter.radius = Float(max(radiusX, radiusY))
+            return filter.outputImage?.cropped(to: input.extent)
+        case .dilate:
+            let filter = CIFilter.morphologyMaximum()
+            filter.inputImage = input
+            filter.radius = Float(max(radiusX, radiusY))
+            return filter.outputImage?.cropped(to: input.extent)
+        }
+    }
+
+    func applyConvolveMatrix(input: CIImage, orderRows: Int, orderCols: Int, kernel: [Double], divisor: Double, bias: Double) -> CIImage? {
+        // Normalize kernel by divisor and add bias
+        let normalizedKernel = kernel.map { Float($0 / divisor) }
+        let floatBias = Float(bias)
+
+        // CIFilter supports 3x3, 5x5, 7x7 square convolutions
+        let order = max(orderRows, orderCols)
+        if order <= 3 {
+            let padded = padKernel(normalizedKernel, to: 9)
+            let filter = CIFilter.convolution3X3()
+            filter.inputImage = input
+            filter.weights = CIVector(values: padded.map { CGFloat($0) }, count: 9)
+            filter.bias = floatBias
+            return filter.outputImage?.cropped(to: input.extent)
+        } else if order <= 5 {
+            let padded = padKernel(normalizedKernel, to: 25)
+            let filter = CIFilter.convolution5X5()
+            filter.inputImage = input
+            filter.weights = CIVector(values: padded.map { CGFloat($0) }, count: 25)
+            filter.bias = floatBias
+            return filter.outputImage?.cropped(to: input.extent)
+        } else if order <= 7 {
+            let padded = padKernel(normalizedKernel, to: 49)
+            let filter = CIFilter.convolution7X7()
+            filter.inputImage = input
+            filter.weights = CIVector(values: padded.map { CGFloat($0) }, count: 49)
+            filter.bias = floatBias
+            return filter.outputImage?.cropped(to: input.extent)
+        }
+        // Unsupported sizes pass through
+        return input
+    }
+
+    func padKernel(_ kernel: [Float], to count: Int) -> [Float] {
+        if kernel.count >= count {
+            return Array(kernel.prefix(count))
+        }
+        return kernel + Array(repeating: Float(0), count: count - kernel.count)
+    }
+
+    func applyTile(input: CIImage, extent: CGRect) -> CIImage? {
+        let filter = CIFilter.affineTile()
+        filter.inputImage = input
+        filter.transform = CGAffineTransform.identity
+        return filter.outputImage?.cropped(to: extent)
+    }
+
+    func applyDisplacementMap(input: CIImage, input2: CIImage?, scale: Double) -> CIImage? {
+        guard let displacementImage = input2 else { return input }
+        let filter = CIFilter.displacementDistortion()
+        filter.inputImage = input
+        filter.displacementImage = displacementImage
+        filter.scale = Float(scale)
+        return filter.outputImage?.cropped(to: input.extent)
+    }
+
+    func applyTurbulence(type: TurbulenceType, extent: CGRect) -> CIImage? {
+        // Approximation using CIRandomGenerator + blur
+        let filter = CIFilter.randomGenerator()
+        guard var noise = filter.outputImage?.cropped(to: extent) else {
+            return nil
+        }
+        if type == .fractalNoise {
+            let blur = CIFilter.gaussianBlur()
+            blur.inputImage = noise
+            blur.radius = 2.0
+            noise = blur.outputImage?.cropped(to: extent) ?? noise
+        }
+        return noise
+    }
+
+    func applyFilterImage(imageData: Data, extent: CGRect) -> CIImage? {
+        guard let ciImage = CIImage(data: imageData) else { return nil }
+        // Scale to fit extent
+        let scaleX = extent.width / ciImage.extent.width
+        let scaleY = extent.height / ciImage.extent.height
+        return ciImage.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+            .transformed(by: CGAffineTransform(translationX: extent.origin.x, y: extent.origin.y))
+            .cropped(to: extent)
+    }
+
+    func applyComponentTransfer(
+        input: CIImage,
+        funcR: TransferFunction,
+        funcG: TransferFunction,
+        funcB: TransferFunction,
+        funcA: TransferFunction
+    ) -> CIImage? {
+        // For identity and linear types, use CIColorMatrix
+        // Table/discrete/gamma are approximated
+        let filter = CIFilter.colorMatrix()
+        filter.inputImage = input
+
+        let (rScale, rBias) = linearCoefficients(funcR)
+        let (gScale, gBias) = linearCoefficients(funcG)
+        let (bScale, bBias) = linearCoefficients(funcB)
+        let (aScale, aBias) = linearCoefficients(funcA)
+
+        filter.rVector = CIVector(x: rScale, y: 0, z: 0, w: 0)
+        filter.gVector = CIVector(x: 0, y: gScale, z: 0, w: 0)
+        filter.bVector = CIVector(x: 0, y: 0, z: bScale, w: 0)
+        filter.aVector = CIVector(x: 0, y: 0, z: 0, w: aScale)
+        filter.biasVector = CIVector(x: rBias, y: gBias, z: bBias, w: aBias)
+        return filter.outputImage
+    }
+
+    func linearCoefficients(_ func_: TransferFunction) -> (CGFloat, CGFloat) {
+        switch func_.type {
+        case .identity:
+            return (1.0, 0.0)
+        case .linear:
+            return (CGFloat(func_.slope), CGFloat(func_.intercept))
+        case .gamma:
+            // Approximate gamma as linear with amplitude as scale
+            return (CGFloat(func_.amplitude), CGFloat(func_.offset))
+        case .table, .discrete:
+            // Approximation: use first two table values as linear
+            if func_.tableValues.count >= 2 {
+                let slope = func_.tableValues[1] - func_.tableValues[0]
+                return (CGFloat(slope), CGFloat(func_.tableValues[0]))
+            }
+            return (1.0, 0.0)
+        }
+    }
+
+    func applyDiffuseLighting(input: CIImage, surfaceScale: Double, diffuseConstant: Double) -> CIImage? {
+        // Approximation: convert to heightfield and apply shading
+        let heightField = CIFilter.heightFieldFromMask()
+        heightField.inputImage = input
+        heightField.radius = Float(surfaceScale * 2)
+        guard let heightImage = heightField.outputImage else { return input }
+
+        let material = CIFilter.shadedMaterial()
+        material.inputImage = heightImage
+        material.scale = Float(diffuseConstant)
+        // Create a simple shading image
+        material.shadingImage = CIImage(color: CIColor(red: 1, green: 1, blue: 1, alpha: 1)).cropped(to: input.extent)
+        return material.outputImage?.cropped(to: input.extent)
+    }
+
+    func applySpecularLighting(input: CIImage, surfaceScale: Double, specularConstant: Double) -> CIImage? {
+        // Same approach as diffuse with specular scaling
+        let heightField = CIFilter.heightFieldFromMask()
+        heightField.inputImage = input
+        heightField.radius = Float(surfaceScale * 2)
+        guard let heightImage = heightField.outputImage else { return input }
+
+        let material = CIFilter.shadedMaterial()
+        material.inputImage = heightImage
+        material.scale = Float(specularConstant)
+        material.shadingImage = CIImage(color: CIColor(red: 1, green: 1, blue: 1, alpha: 1)).cropped(to: input.extent)
+        return material.outputImage?.cropped(to: input.extent)
     }
 }
