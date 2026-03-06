@@ -12,6 +12,7 @@ public struct PathLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
     public let shouldScaleWithZoom: Bool
     public let clipPath: ClipPath?
     public let mask: MaskLayer?
+    public let filter: FilterLayer?
 
     public init(
         id: ID,
@@ -23,7 +24,8 @@ public struct PathLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         bezier: BezierPath,
         shouldScaleWithZoom: Bool = true,
         clipPath: ClipPath? = nil,
-        mask: MaskLayer? = nil
+        mask: MaskLayer? = nil,
+        filter: FilterLayer? = nil
     ) {
         self.id = id
         self.transform = transform
@@ -35,5 +37,6 @@ public struct PathLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         self.shouldScaleWithZoom = shouldScaleWithZoom
         self.clipPath = clipPath
         self.mask = mask
+        self.filter = filter
     }
 }

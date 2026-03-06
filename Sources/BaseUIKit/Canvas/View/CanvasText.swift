@@ -42,7 +42,8 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
                 decorations: layer.decorations,
                 autosize: layer.autosize,
                 width: layer.width,
-                runs: layer.runs
+                runs: layer.runs,
+                filter: layer.filter
             )
         )
     }
@@ -113,6 +114,7 @@ private extension CanvasText {
         var autosize: Bool
         var width: Double
         var runs: [TextRun]
+        var filter: FilterLayer?
     }
         
     func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
@@ -135,8 +137,14 @@ private extension CanvasText {
         let affineTransform = memberData.transform.toCG
         context.concatenate(affineTransform)
         
-        locked_drawSelf(&memberData, in: rect, into: context, atScale: scale)
-        
+        if let filter = memberData.filter {
+            filter.drawFiltered(into: context, scale: scale) { targetContext in
+                locked_drawSelf(&memberData, in: rect, into: targetContext, atScale: scale)
+            }
+        } else {
+            locked_drawSelf(&memberData, in: rect, into: context, atScale: scale)
+        }
+
         context.endTransparencyLayer()
         context.restoreGState()
     }
@@ -204,6 +212,10 @@ private extension CanvasText {
         }
         if memberData.width != layer.width {
             memberData.width = layer.width
+            didChange = true
+        }
+        if memberData.filter != layer.filter {
+            memberData.filter = layer.filter
             didChange = true
         }
         if didChange {

@@ -32,6 +32,7 @@ final class CanvasPath<ID: Hashable & Sendable>: Sendable {
                 clipPath: layer.clipPath,
                 mask: layer.mask,
                 cachedMaskImage: nil,
+                filter: layer.filter,
                 renderedBezier: renderedBezier
             )
         )
@@ -106,6 +107,7 @@ private extension CanvasPath {
         var clipPath: ClipPath?
         var mask: MaskLayer?
         var cachedMaskImage: CGImage?
+        var filter: FilterLayer?
         var renderedBezier: BezierPath
     }
     
@@ -151,8 +153,14 @@ private extension CanvasPath {
             }
         }
 
-        locked_drawSelf(&memberData, in: rect, into: context, atScale: scale)
-        
+        if let filter = memberData.filter {
+            filter.drawFiltered(into: context, scale: scale) { targetContext in
+                locked_drawSelf(&memberData, in: rect, into: targetContext, atScale: scale)
+            }
+        } else {
+            locked_drawSelf(&memberData, in: rect, into: context, atScale: scale)
+        }
+
         context.endTransparencyLayer()
         context.restoreGState()
     }
@@ -228,6 +236,10 @@ private extension CanvasPath {
         if memberData.mask != layer.mask {
             memberData.mask = layer.mask
             memberData.cachedMaskImage = nil
+            didChange = true
+        }
+        if memberData.filter != layer.filter {
+            memberData.filter = layer.filter
             didChange = true
         }
         if didChange {

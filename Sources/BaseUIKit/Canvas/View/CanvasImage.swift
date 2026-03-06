@@ -26,6 +26,7 @@ final class CanvasImage<ID: Hashable & Sendable>: Sendable {
                 height: layer.height,
                 imageData: layer.imageData,
                 clipRect: layer.clipRect,
+                filter: layer.filter,
                 imageCache: nil
             )
         )
@@ -90,6 +91,7 @@ private extension CanvasImage {
         var height: Double
         var imageData: Data
         var clipRect: Rect?
+        var filter: FilterLayer?
         var imageCache: CGImage?
     }
     
@@ -123,6 +125,10 @@ private extension CanvasImage {
         }
         if memberData.clipRect != layer.clipRect {
             memberData.clipRect = layer.clipRect
+            didChange = true
+        }
+        if memberData.filter != layer.filter {
+            memberData.filter = layer.filter
             didChange = true
         }
         if didChange {
@@ -163,8 +169,14 @@ private extension CanvasImage {
             context.clip(to: [clipRect.toCG])
         }
 
-        locked_drawSelf(&memberData, in: rect, into: context, atScale: scale)
-        
+        if let filter = memberData.filter {
+            filter.drawFiltered(into: context, scale: scale) { targetContext in
+                locked_drawSelf(&memberData, in: rect, into: targetContext, atScale: scale)
+            }
+        } else {
+            locked_drawSelf(&memberData, in: rect, into: context, atScale: scale)
+        }
+
         context.endTransparencyLayer()
         context.restoreGState()
     }
