@@ -57,9 +57,9 @@ extension CanvasPath: CanvasObject{
         }
     }
         
-    func draw(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+    func draw(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         memberData.withLock {
-            locked_draw(&$0, in: rect, into: context, atScale: scale)
+            locked_draw(&$0, in: rect, into: context, atScale: scale, renderingCache: renderingCache)
         }
     }
     
@@ -121,7 +121,7 @@ private extension CanvasPath {
         locked_quickGlobalEffectiveBounds(&memberData)
     }
 
-    func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+    func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         guard locked_willDrawRect(&memberData).intersects(rect) else {
             return
         }
@@ -156,25 +156,25 @@ private extension CanvasPath {
         }
 
         if let filter = memberData.filter {
-            filter.drawFiltered(into: context, scale: scale) { targetContext in
-                locked_drawSelf(&memberData, in: rect, into: targetContext, atScale: scale)
+            filter.drawFiltered(into: context, scale: scale, renderingCache: renderingCache) { targetContext in
+                locked_drawSelf(&memberData, in: rect, into: targetContext, atScale: scale, renderingCache: renderingCache)
             }
         } else {
-            locked_drawSelf(&memberData, in: rect, into: context, atScale: scale)
+            locked_drawSelf(&memberData, in: rect, into: context, atScale: scale, renderingCache: renderingCache)
         }
 
         context.endTransparencyLayer()
         context.restoreGState()
     }
 
-    func locked_drawSelf(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+    func locked_drawSelf(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         if !memberData.shouldScaleWithZoom {
             context.scaleBy(x: 1.0 / scale, y: 1.0 / scale)
         }
         let bezier = memberData.bezier
         for decoration in memberData.decorations {
             bezier.set(in: context)
-            decoration.render(into: context, atScale: scale)
+            decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
         }
         if let markers = memberData.markers {
             for placement in markers.placements {
@@ -186,7 +186,7 @@ private extension CanvasPath {
                 context.rotate(by: CGFloat(placement.angle))
                 context.concatenate(placement.markerTransform.toCG)
                 for shape in placement.shapes {
-                    shape.render(into: context, atScale: scale)
+                    shape.render(into: context, atScale: scale, renderingCache: renderingCache)
                 }
                 context.restoreGState()
             }

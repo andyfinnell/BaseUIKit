@@ -9,7 +9,7 @@ protocol CanvasObject<ID>: AnyObject, Sendable {
     var didDrawRect: CGRect { get }
     var willDrawRect: CGRect { get }
     
-    func draw(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat)
+    func draw(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?)
     
     var layer: Layer<ID> { get }
     var structurePath: BezierPath { get }

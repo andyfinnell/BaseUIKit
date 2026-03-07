@@ -67,9 +67,9 @@ extension CanvasText: CanvasObject {
         }
     }
     
-    func draw(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+    func draw(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         memberData.withLock {
-            locked_draw(&$0, in: rect, into: context, atScale: scale)
+            locked_draw(&$0, in: rect, into: context, atScale: scale, renderingCache: renderingCache)
         }
     }
     
@@ -117,49 +117,49 @@ private extension CanvasText {
         var filter: FilterLayer?
     }
         
-    func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+    func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         guard locked_willDrawRect(&memberData).intersects(rect) else {
             return
         }
-        
+
         memberData.didDrawRect = locked_willDrawRect(&memberData)
-        
+
         guard memberData.isVisible else {
             return
         }
-        
+
         context.saveGState()
-        
+
         context.setAlpha(memberData.opacity)
         context.setBlendMode(memberData.blendMode.toCG)
         context.beginTransparencyLayer(auxiliaryInfo: nil)
-        
+
         let affineTransform = memberData.transform.toCG
         context.concatenate(affineTransform)
-        
+
         if let filter = memberData.filter {
-            filter.drawFiltered(into: context, scale: scale) { targetContext in
-                locked_drawSelf(&memberData, in: rect, into: targetContext, atScale: scale)
+            filter.drawFiltered(into: context, scale: scale, renderingCache: renderingCache) { targetContext in
+                locked_drawSelf(&memberData, in: rect, into: targetContext, atScale: scale, renderingCache: renderingCache)
             }
         } else {
-            locked_drawSelf(&memberData, in: rect, into: context, atScale: scale)
+            locked_drawSelf(&memberData, in: rect, into: context, atScale: scale, renderingCache: renderingCache)
         }
 
         context.endTransparencyLayer()
         context.restoreGState()
     }
 
-    func locked_drawSelf(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+    func locked_drawSelf(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         guard !memberData.runs.isEmpty else {
             return
         }
-        
+
         let bounds = locked_structureBounds(&memberData)
         let path = locked_cgPath(&memberData)
-                
+
         for decoration in memberData.decorations {
             setPath(path, with: bounds, in: context)
-            decoration.render(into: context, atScale: scale)
+            decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
         }
     }
 

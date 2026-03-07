@@ -49,9 +49,9 @@ extension CanvasImage: CanvasObject {
         }
     }
         
-    func draw(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+    func draw(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         memberData.withLock {
-            locked_draw(&$0, in: rect, into: context, atScale: scale)
+            locked_draw(&$0, in: rect, into: context, atScale: scale, renderingCache: renderingCache)
         }
     }
 
@@ -145,23 +145,23 @@ private extension CanvasImage {
         return CGRect(x: 0, y: 0, width: memberData.width, height: memberData.height)
     }
     
-    func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+    func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         guard locked_willDrawRect(&memberData).intersects(rect) else {
             return
         }
-        
+
         memberData.didDrawRect = locked_willDrawRect(&memberData)
-        
+
         guard memberData.isVisible else {
             return
         }
-        
+
         context.saveGState()
-        
+
         context.setAlpha(memberData.opacity)
         context.setBlendMode(memberData.blendMode.toCG)
         context.beginTransparencyLayer(auxiliaryInfo: nil)
-        
+
         let affineTransform = memberData.transform.toCG
         context.concatenate(affineTransform)
 
@@ -170,7 +170,7 @@ private extension CanvasImage {
         }
 
         if let filter = memberData.filter {
-            filter.drawFiltered(into: context, scale: scale) { targetContext in
+            filter.drawFiltered(into: context, scale: scale, renderingCache: renderingCache) { targetContext in
                 locked_drawSelf(&memberData, in: rect, into: targetContext, atScale: scale)
             }
         } else {

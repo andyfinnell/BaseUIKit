@@ -3,13 +3,13 @@ import CoreGraphics
 import BaseKit
 
 public extension Stroke {
-    func render(into context: CGContext, atScale scale: CGFloat) {
+    func render(into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache? = nil) {
         context.setLineWidth(width)
         context.setLineJoin(join.toCG)
         context.setLineCap(cap.toCG)
         context.setMiterLimit(miterLimit)
         if lineDash.isSet {
-            context.setLineDash(phase: lineDash.phase, 
+            context.setLineDash(phase: lineDash.phase,
                                 lengths: lineDash.lengths.map { CGFloat($0) })
         }
         context.setAlpha(opacity)
@@ -17,12 +17,12 @@ public extension Stroke {
             context.saveGState()
             context.scaleBy(x: 1.0 / scale, y: 1.0 / scale)
         }
-        paint.stroke(context)
+        paint.stroke(context, renderingCache: renderingCache)
         if !shouldScaleWithZoom {
             context.restoreGState()
         }
     }
-    
+
     func effectiveBounds(for rect: CGRect) -> CGRect {
         var width = ceil(ceil(width) / 2.0)
         if join == .miter {

@@ -3,15 +3,15 @@ import CoreGraphics
 import BaseKit
 
 public extension Decoration {
-    func render(into context: CGContext, atScale scale: CGFloat) {
+    func render(into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache? = nil) {
         switch self {
         case let .stroke(stroke):
-            stroke.render(into: context, atScale: scale)
+            stroke.render(into: context, atScale: scale, renderingCache: renderingCache)
         case let .fill(fill):
-            fill.render(into: context)
+            fill.render(into: context, renderingCache: renderingCache)
         }
     }
-    
+
     func effectiveBounds(for rect: CGRect) -> CGRect {
         switch self {
         case let .stroke(stroke):

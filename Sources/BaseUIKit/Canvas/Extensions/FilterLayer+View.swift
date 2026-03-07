@@ -9,6 +9,7 @@ extension FilterLayer {
     func drawFiltered(
         into context: CGContext,
         scale: CGFloat,
+        renderingCache: RenderingCache?,
         drawContent: (CGContext) -> Void
     ) {
         let filterRegion = region.toCG
@@ -32,7 +33,7 @@ extension FilterLayer {
         drawContent(offscreen)
 
         if let sourceImage = offscreen.makeImage(),
-           let filteredImage = applyFilter(to: sourceImage, scale: scale) {
+           let filteredImage = applyFilter(to: sourceImage, scale: scale, renderingCache: renderingCache) {
             context.draw(filteredImage, in: filterRegion)
         } else if let sourceImage = offscreen.makeImage() {
             context.draw(sourceImage, in: filterRegion)
@@ -41,8 +42,8 @@ extension FilterLayer {
 }
 
 private extension FilterLayer {
-    func applyFilter(to sourceImage: CGImage, scale: CGFloat) -> CGImage? {
-        let ciContext = CIContext()
+    func applyFilter(to sourceImage: CGImage, scale: CGFloat, renderingCache: RenderingCache?) -> CGImage? {
+        let ciContext = renderingCache?.ciContext ?? CIContext()
         let sourceGraphic = CIImage(cgImage: sourceImage)
         let sourceAlpha = extractAlpha(from: sourceGraphic)
 

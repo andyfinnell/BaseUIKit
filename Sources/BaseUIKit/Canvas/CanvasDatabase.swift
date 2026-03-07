@@ -9,6 +9,7 @@ protocol CanvasCoreViewDelegate: AnyObject {
 }
 
 public final class CanvasDatabase<ID: Hashable & Sendable>: Sendable {
+    private let renderingCache = RenderingCache()
     private let memberData: Mutex<MemberData>
             
     public init(canvas: Canvas<ID>) {
@@ -296,7 +297,7 @@ private extension CanvasDatabase {
         locked_drawBackground(&memberData, intersectInDocumentCoords, in: context)
         context.concatenate(locked_contentAffineTransform(&memberData))
         for object in memberData.objectsInOrder {
-            object.draw(intersectInDocumentCoords, into: context, atScale: memberData.zoom)
+            object.draw(intersectInDocumentCoords, into: context, atScale: memberData.zoom, renderingCache: renderingCache)
         }
         
         context.restoreGState()

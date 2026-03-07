@@ -2,13 +2,13 @@ import CoreGraphics
 import BaseKit
 
 extension DecoratedShape {
-    func render(into context: CGContext, atScale scale: CGFloat) {
+    func render(into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache? = nil) {
         context.saveGState()
         context.setAlpha(CGFloat(opacity))
         context.concatenate(transform.toCG)
         for decoration in decorations {
             path.set(in: context)
-            decoration.render(into: context, atScale: scale)
+            decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
         }
         context.restoreGState()
     }

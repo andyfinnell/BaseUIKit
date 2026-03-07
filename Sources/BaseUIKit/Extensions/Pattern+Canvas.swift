@@ -2,8 +2,8 @@ import CoreGraphics
 import BaseKit
 
 public extension Pattern {
-    func fill(_ context: CGContext, using fillRule: CGPathFillRule) {
-        guard let pattern,
+    func fill(_ context: CGContext, using fillRule: CGPathFillRule, renderingCache: RenderingCache? = nil) {
+        guard let pattern = pattern(renderingCache: renderingCache),
               let colorSpace = CGColorSpace(patternBaseSpace: nil) else {
             return
         }
@@ -18,8 +18,8 @@ public extension Pattern {
         context.restoreGState()
     }
 
-    func stroke(_ context: CGContext) {
-        guard let pattern,
+    func stroke(_ context: CGContext, renderingCache: RenderingCache? = nil) {
+        guard let pattern = pattern(renderingCache: renderingCache),
               let colorSpace = CGColorSpace(patternBaseSpace: nil) else {
             return
         }
@@ -36,7 +36,11 @@ public extension Pattern {
 }
 
 private extension Pattern {
-    var tileImage: CGImage? {
+    func tileImage(renderingCache: RenderingCache?) -> CGImage? {
+        if let renderingCache, let cached = renderingCache.cachedTileImage(for: self) {
+            return cached
+        }
+
         let pixelW = Int(ceil(tileWidth > 0 ? tileWidth : 1))
         let pixelH = Int(ceil(tileHeight > 0 ? tileHeight : 1))
 
@@ -47,11 +51,15 @@ private extension Pattern {
             ct = contentTransform.toCG.concatenating(ct)
         }
 
-        return shapes.renderToImage(width: pixelW, height: pixelH, contentTransform: ct)
+        guard let image = shapes.renderToImage(width: pixelW, height: pixelH, contentTransform: ct) else {
+            return nil
+        }
+        renderingCache?.cacheTileImage(image, for: self)
+        return image
     }
 
-    var pattern: CGPattern? {
-        guard let image = tileImage else {
+    func pattern(renderingCache: RenderingCache?) -> CGPattern? {
+        guard let image = tileImage(renderingCache: renderingCache) else {
             return nil
         }
 
