@@ -11,7 +11,7 @@ extension CanvasIndex {
         case .last:
             collection.count
         case let .at(i):
-            i
+            min(i, collection.count)
         }
     }
 }
