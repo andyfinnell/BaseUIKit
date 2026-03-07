@@ -158,9 +158,12 @@ private extension CanvasImage {
 
         context.saveGState()
 
-        context.setAlpha(memberData.opacity)
-        context.setBlendMode(memberData.blendMode.toCG)
-        context.beginTransparencyLayer(auxiliaryInfo: nil)
+        let needsTransparencyLayer = memberData.opacity < 1.0 || memberData.blendMode != .normal
+        if needsTransparencyLayer {
+            context.setAlpha(memberData.opacity)
+            context.setBlendMode(memberData.blendMode.toCG)
+            context.beginTransparencyLayer(auxiliaryInfo: nil)
+        }
 
         let affineTransform = memberData.transform.toCG
         context.concatenate(affineTransform)
@@ -177,7 +180,9 @@ private extension CanvasImage {
             locked_drawSelf(&memberData, in: rect, into: context, atScale: scale)
         }
 
-        context.endTransparencyLayer()
+        if needsTransparencyLayer {
+            context.endTransparencyLayer()
+        }
         context.restoreGState()
     }
 
