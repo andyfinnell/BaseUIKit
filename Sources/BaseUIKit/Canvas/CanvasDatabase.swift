@@ -365,12 +365,12 @@ private extension CanvasDatabase {
     
     func locked_convertViewToDocument(_ memberData: inout MemberData, _ pointInViewCoords: CGPoint) -> CGPoint {
         pointInViewCoords.applying(locked_transform(&memberData).inverted())
-            .applying(locked_contentAffineTransform(&memberData))
+            .applying(locked_contentAffineTransform(&memberData).inverted())
     }
 
     func locked_convertViewToDocument(_ memberData: inout MemberData, _ rectInViewCoords: CGRect) -> CGRect {
         rectInViewCoords.applying(locked_transform(&memberData).inverted())
-            .applying(locked_contentAffineTransform(&memberData))
+            .applying(locked_contentAffineTransform(&memberData).inverted())
     }
 
     func locked_allLayers(_ memberData: inout MemberData, including predicate: (ID) -> Bool) -> [Layer<ID>] {
@@ -547,16 +547,16 @@ private extension CanvasDatabase {
     
     func locked_updateScrollPosition(_ memberData: inout MemberData, to position: Point, into invalidates: inout Set<CanvasInvalidation>) {
         let viewPosition = position
-            .applying(locked_contentAffineTransform(&memberData).inverted())
+            .applying(locked_contentAffineTransform(&memberData))
             .applying(locked_transform(&memberData))
-        
+
         // TODO: we should do some range checking here and rein it in
         invalidates.insert(.scrollPosition(viewPosition.toCG))
     }
 
     func locked_updateScrollPositionCenter(_ memberData: inout MemberData, to position: Point, into invalidates: inout Set<CanvasInvalidation>) {
         let viewPosition = position
-            .applying(locked_contentAffineTransform(&memberData).inverted())
+            .applying(locked_contentAffineTransform(&memberData))
             .applying(locked_transform(&memberData))
         invalidates.insert(.scrollPositionCenteredAt(viewPosition.toCG))
     }
@@ -826,7 +826,7 @@ private extension CanvasDatabase {
         into invalids: inout Set<CanvasInvalidation>
     ) {
         let invalidRect = rect
-            .applying(locked_contentAffineTransform(&memberData).inverted())
+            .applying(locked_contentAffineTransform(&memberData))
             .applying(locked_transform(&memberData))
         invalids.insert(.invalidateRect(invalidRect))
     }

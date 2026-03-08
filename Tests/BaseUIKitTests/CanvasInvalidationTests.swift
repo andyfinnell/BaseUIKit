@@ -320,6 +320,182 @@ final class CanvasInvalidationTests: XCTestCase {
         )
     }
 
+    // MARK: - Content transform helpers
+
+    private func makeDatabaseWithContentTransform(
+        _ contentTransform: Transform,
+        width: Double = 100,
+        height: Double = 100
+    ) -> (CanvasDatabase<String>, MockCanvasDelegate) {
+        let canvas = Canvas<String>(
+            width: width,
+            height: height,
+            contentTransform: contentTransform,
+            backgroundColor: nil,
+            layers: []
+        )
+        let db = CanvasDatabase(canvas: canvas)
+        db.setBounds(CGRect(x: 0, y: 0, width: width, height: height))
+        db.setVisibleSize(CGSize(width: width, height: height))
+        let delegate = MockCanvasDelegate()
+        db.setDelegate(delegate)
+        return (db, delegate)
+    }
+
+    // MARK: - Insert with content transform
+
+    func testInsertWithScaleDownContentTransformInvalidatesCorrectViewRect() async throws {
+        // contentTransform = scale(0.5): maps SVG 200x200 → viewport 100x100
+        // Object at SVG (100, 100, 50, 50) → view (50, 50, 25, 25)
+        let (db, delegate) = makeDatabaseWithContentTransform(Transform(scaleX: 0.5, y: 0.5))
+        delegate.reset()
+
+        let layer = makePathLayer(id: "rect1", rect: Rect(x: 100, y: 100, width: 50, height: 50))
+        let command = CanvasCommand<String>(.upsertLayer(.path(layer), at: .last))
+        await performAndWait(db, command, delegate: delegate)
+
+        let rects = delegate.allInvalidatedRects
+        let expectedViewArea = CGRect(x: 50, y: 50, width: 25, height: 25)
+        let wrongArea = CGRect(x: 200, y: 200, width: 100, height: 100)
+
+        XCTAssertFalse(rects.isEmpty, "Insert should produce invalidation rects")
+        XCTAssertTrue(
+            rects.contains(where: { $0.intersects(expectedViewArea) }),
+            "Invalidation should cover view-space area \(expectedViewArea). Got: \(rects)"
+        )
+        XCTAssertFalse(
+            rects.contains(where: { $0.intersects(wrongArea) }),
+            "Invalidation should NOT be at the inverted-transform location \(wrongArea). Got: \(rects)"
+        )
+    }
+
+    func testInsertWithScaleUpContentTransformInvalidatesCorrectViewRect() async throws {
+        // contentTransform = scale(2): maps SVG 100x100 → viewport 200x200
+        // Object at SVG (30, 30, 20, 20) → view (60, 60, 40, 40)
+        let (db, delegate) = makeDatabaseWithContentTransform(
+            Transform(scaleX: 2, y: 2),
+            width: 200,
+            height: 200
+        )
+        delegate.reset()
+
+        let layer = makePathLayer(id: "rect1", rect: Rect(x: 30, y: 30, width: 20, height: 20))
+        let command = CanvasCommand<String>(.upsertLayer(.path(layer), at: .last))
+        await performAndWait(db, command, delegate: delegate)
+
+        let rects = delegate.allInvalidatedRects
+        let expectedViewArea = CGRect(x: 60, y: 60, width: 40, height: 40)
+        let wrongArea = CGRect(x: 15, y: 15, width: 10, height: 10)
+
+        XCTAssertFalse(rects.isEmpty, "Insert should produce invalidation rects")
+        XCTAssertTrue(
+            rects.contains(where: { $0.intersects(expectedViewArea) }),
+            "Invalidation should cover view-space area \(expectedViewArea). Got: \(rects)"
+        )
+        XCTAssertFalse(
+            rects.contains(where: { $0.intersects(wrongArea) && !$0.intersects(expectedViewArea) }),
+            "Invalidation should NOT be at the inverted-transform location \(wrongArea). Got: \(rects)"
+        )
+    }
+
+    // MARK: - Update after draw with content transform
+
+    func testUpdateAfterDrawWithContentTransformInvalidatesCorrectViewRects() async throws {
+        // contentTransform = scale(0.5): maps SVG 200x200 → viewport 100x100
+        // Use object coords within the viewport range so the draw intersection check passes
+        let (db, delegate) = makeDatabaseWithContentTransform(Transform(scaleX: 0.5, y: 0.5))
+        delegate.reset()
+
+        // Insert at SVG (50, 50, 30, 30) → view (25, 25, 15, 15)
+        let layer1 = makePathLayer(id: "rect1", rect: Rect(x: 50, y: 50, width: 30, height: 30))
+        let insertCmd = CanvasCommand<String>(.upsertLayer(.path(layer1), at: .last))
+        await performAndWait(db, insertCmd, delegate: delegate)
+
+        // Draw so didDrawRect gets set
+        let context = makeBitmapContext(width: 100, height: 100)
+        db.drawRect(CGRect(x: 0, y: 0, width: 100, height: 100), into: context)
+        delegate.reset()
+
+        // Move to SVG (20, 20, 30, 30) → view (10, 10, 15, 15)
+        let layer2 = makePathLayer(id: "rect1", rect: Rect(x: 20, y: 20, width: 30, height: 30))
+        let updateCmd = CanvasCommand<String>(.upsertLayer(.path(layer2), at: .last))
+        await performAndWait(db, updateCmd, delegate: delegate)
+
+        let rects = delegate.allInvalidatedRects
+        let oldViewArea = CGRect(x: 25, y: 25, width: 15, height: 15)
+        let newViewArea = CGRect(x: 10, y: 10, width: 15, height: 15)
+
+        XCTAssertTrue(
+            rects.contains(where: { $0.intersects(oldViewArea) }),
+            "Update should invalidate old view-space bounds \(oldViewArea). Got: \(rects)"
+        )
+        XCTAssertTrue(
+            rects.contains(where: { $0.intersects(newViewArea) }),
+            "Update should invalidate new view-space bounds \(newViewArea). Got: \(rects)"
+        )
+    }
+
+    // MARK: - Delete after draw with content transform
+
+    func testDeleteAfterDrawWithContentTransformInvalidatesCorrectViewRect() async throws {
+        // contentTransform = scale(0.5): maps SVG 200x200 → viewport 100x100
+        // Use object coords within the viewport range so the draw intersection check passes
+        let (db, delegate) = makeDatabaseWithContentTransform(Transform(scaleX: 0.5, y: 0.5))
+        delegate.reset()
+
+        // Object at SVG (50, 50, 30, 30) → view (25, 25, 15, 15)
+        let layer = makePathLayer(id: "rect1", rect: Rect(x: 50, y: 50, width: 30, height: 30))
+        let insertCmd = CanvasCommand<String>(.upsertLayer(.path(layer), at: .last))
+        await performAndWait(db, insertCmd, delegate: delegate)
+
+        let context = makeBitmapContext(width: 100, height: 100)
+        db.drawRect(CGRect(x: 0, y: 0, width: 100, height: 100), into: context)
+        delegate.reset()
+
+        let deleteCmd = CanvasCommand<String>(.deleteLayer("rect1"))
+        await performAndWait(db, deleteCmd, delegate: delegate)
+
+        let rects = delegate.allInvalidatedRects
+        let expectedViewArea = CGRect(x: 25, y: 25, width: 15, height: 15)
+
+        XCTAssertTrue(
+            rects.contains(where: { $0.intersects(expectedViewArea) }),
+            "Delete should invalidate old view-space bounds \(expectedViewArea). Got: \(rects)"
+        )
+    }
+
+    // MARK: - Convert view to document with content transform
+
+    func testConvertViewToDocumentPointWithContentTransform() {
+        // contentTransform = scale(0.5): maps SVG 200x200 → viewport 100x100
+        // View point (50, 50) → document/SVG point (100, 100)
+        let (db, _) = makeDatabaseWithContentTransform(Transform(scaleX: 0.5, y: 0.5))
+
+        let documentPoint = db.convertViewToDocument(CGPoint(x: 50, y: 50))
+
+        XCTAssertEqual(documentPoint.x, 100, accuracy: 0.01,
+            "View x=50 should map to document x=100 with scale(0.5). Got: \(documentPoint.x)")
+        XCTAssertEqual(documentPoint.y, 100, accuracy: 0.01,
+            "View y=50 should map to document y=100 with scale(0.5). Got: \(documentPoint.y)")
+    }
+
+    func testConvertViewToDocumentPointWithScaleUpContentTransform() {
+        // contentTransform = scale(2): maps SVG 100x100 → viewport 200x200
+        // View point (60, 60) → document/SVG point (30, 30)
+        let (db, _) = makeDatabaseWithContentTransform(
+            Transform(scaleX: 2, y: 2),
+            width: 200,
+            height: 200
+        )
+
+        let documentPoint = db.convertViewToDocument(CGPoint(x: 60, y: 60))
+
+        XCTAssertEqual(documentPoint.x, 30, accuracy: 0.01,
+            "View x=60 should map to document x=30 with scale(2). Got: \(documentPoint.x)")
+        XCTAssertEqual(documentPoint.y, 30, accuracy: 0.01,
+            "View y=60 should map to document y=30 with scale(2). Got: \(documentPoint.y)")
+    }
+
     // MARK: - Insert then delete in sequence
 
     func testInsertThenDeleteInvalidatesCorrectly() async throws {
