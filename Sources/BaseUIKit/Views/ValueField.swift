@@ -50,6 +50,16 @@ public struct ValueField<Parser: FieldParser>: View {
         self.onBeginEditing = Callback(onBeginEditing)
         self.onEndEditing = Callback(onEndEditing)
     }
+
+    public init(
+        _ title: String,
+        value: Binding<Parser.Value>,
+        errorMessage: String? = nil,
+        onBeginEditing: @escaping () -> Void = {},
+        onEndEditing: @escaping () -> Void = {}
+    ) {
+        self.init(title, value: value.wrappedValue, onChange: { value.wrappedValue = $0 }, errorMessage: errorMessage, onBeginEditing: onBeginEditing, onEndEditing: onEndEditing)
+    }
     
     public init<C: RandomAccessCollection & Sendable>(
         _ title: String,

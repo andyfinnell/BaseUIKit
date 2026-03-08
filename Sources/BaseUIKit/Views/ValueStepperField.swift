@@ -28,6 +28,17 @@ public struct ValueStepperField<Parser: SliderFieldParser>: View {
         self.onEndEditing = Callback(onEndEditing)
         self.errorMessage = errorMessage
     }
+
+    public init(
+        _ title: String,
+        value: Binding<Parser.Value>,
+        step: Double,
+        errorMessage: String? = nil,
+        onBeginEditing: @escaping () -> Void = {},
+        onEndEditing: @escaping () -> Void = {}
+    ) {
+        self.init(title, value: value.wrappedValue, onChange: { value.wrappedValue = $0 }, step: step, errorMessage: errorMessage, onBeginEditing: onBeginEditing, onEndEditing: onEndEditing)
+    }
     
     public var body: some View {
         VStack {

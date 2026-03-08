@@ -72,6 +72,14 @@ public struct OpacityField: View {
         self.onEndEditing = Callback(onEndEditing)
     }
 
+    public init(
+        value: Binding<Double>,
+        onBeginEditing: @escaping () -> Void = {},
+        onEndEditing: @escaping () -> Void = {}
+    ) {
+        self.init(value: value.wrappedValue, onChange: { value.wrappedValue = $0 }, onBeginEditing: onBeginEditing, onEndEditing: onEndEditing)
+    }
+
     public init<C: RandomAccessCollection & Sendable>(
         sources: C,
         value: KeyPath<C.Element, Double> & Sendable,

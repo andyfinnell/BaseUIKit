@@ -22,6 +22,7 @@ private extension Cursor {
         case .zoomOut: NSCursor.zoomOut
         case .openHand: NSCursor.openHand
         case .closedHand: NSCursor.closedHand
+        case .move: NSCursor.openHand
         }
     }
     #endif

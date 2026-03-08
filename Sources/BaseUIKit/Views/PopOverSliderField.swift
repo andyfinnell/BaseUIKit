@@ -28,6 +28,17 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
         self.onEndEditing = Callback(onEndEditing)
     }
 
+    public init(
+        _ title: String,
+        value: Binding<Parser.Value>,
+        in range: ClosedRange<Double>,
+        errorMessage: String? = nil,
+        onBeginEditing: @escaping () -> Void = {},
+        onEndEditing: @escaping () -> Void = {}
+    ) {
+        self.init(title, value: value.wrappedValue, onChange: { value.wrappedValue = $0 }, in: range, errorMessage: errorMessage, onBeginEditing: onBeginEditing, onEndEditing: onEndEditing)
+    }
+
     init(
         _ title: String,
         value: SmartBind<Parser.Value, ExtraEmpty>,

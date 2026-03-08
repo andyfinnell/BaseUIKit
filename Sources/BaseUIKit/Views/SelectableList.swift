@@ -13,6 +13,13 @@ public struct SelectableList<Content: View, SelectionValue: Hashable & Sendable>
         self.sourceValue = SmartBind(source, onChange)
         self.content = ViewHolder(content)
     }
+
+    public init(
+        selection: Binding<SelectionValue?>,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.init(selection: selection.wrappedValue, onChange: { selection.wrappedValue = $0 }, content: content)
+    }
     
     public var body: some View {
         List(selection: $selection, content: content.content)

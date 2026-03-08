@@ -29,6 +29,14 @@ public struct Chooser<Content: View, Label: View, Value: Hashable & Defaultable 
     }
 
     public init(
+        selection: Binding<Value>,
+        @ViewBuilder content: @escaping () -> Content,
+        @ViewBuilder label: @escaping () -> Label
+    ) {
+        self.init(selection: selection.wrappedValue, onChange: { selection.wrappedValue = $0 }, content: content, label: label)
+    }
+
+    public init(
         _ titleKey: LocalizedStringKey,
         selection source: Value,
         onChange: @escaping (Value) -> Void,
@@ -37,6 +45,14 @@ public struct Chooser<Content: View, Label: View, Value: Hashable & Defaultable 
         self.source = SmartCollectionBind([source], onChange)
         self.content = ViewHolder(content)
         self.label = ViewHolder({ Text(titleKey) })
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        selection: Binding<Value>,
+        @ViewBuilder content: @escaping () -> Content
+    ) where Label == Text {
+        self.init(titleKey, selection: selection.wrappedValue, onChange: { selection.wrappedValue = $0 }, content: content)
     }
 
     public init<C: RandomAccessCollection>(

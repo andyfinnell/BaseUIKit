@@ -7,6 +7,10 @@ public struct AnchorView: View {
     public init(anchor: BaseKit.AnchorPoint, onChange: @escaping (BaseKit.AnchorPoint) -> Void) {
         self.anchor = SmartBind(anchor, onChange)
     }
+
+    public init(anchor: Binding<BaseKit.AnchorPoint>) {
+        self.init(anchor: anchor.wrappedValue, onChange: { anchor.wrappedValue = $0 })
+    }
     
     public var body: some View {
         Grid {

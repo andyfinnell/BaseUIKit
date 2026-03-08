@@ -13,7 +13,14 @@ public struct Switch<Label: View>: View {
         binding = SmartCollectionBind([isOn], onChange)
         self.label = ViewHolder(label)
     }
-    
+
+    public init(
+        isOn: Binding<Bool>,
+        @ViewBuilder label: @escaping () -> Label
+    ) {
+        self.init(isOn: isOn.wrappedValue, onChange: { isOn.wrappedValue = $0 }, label: label)
+    }
+
     public init(
         _ titleKey: LocalizedStringKey,
         isOn: Bool,
@@ -21,6 +28,13 @@ public struct Switch<Label: View>: View {
     ) where Label == Text {
         binding = SmartCollectionBind([isOn], onChange)
         self.label = ViewHolder({ Text(titleKey) })
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        isOn: Binding<Bool>
+    ) where Label == Text {
+        self.init(titleKey, isOn: isOn.wrappedValue, onChange: { isOn.wrappedValue = $0 })
     }
 
     public init<C: RandomAccessCollection>(

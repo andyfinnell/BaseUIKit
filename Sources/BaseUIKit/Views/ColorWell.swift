@@ -40,6 +40,16 @@ public struct ColorWell: View {
         self.onBeginEditing = Callback(onBeginEditing)
         self.onEndEditing = Callback(onEndEditing)
     }
+
+    public init(
+        _ title: String,
+        color: Binding<BaseKit.Color>,
+        supportsOpacity: Bool = true,
+        onBeginEditing: @escaping () -> Void = {},
+        onEndEditing: @escaping () -> Void = {}
+    ) {
+        self.init(title, color: color.wrappedValue, onChange: { color.wrappedValue = $0 }, supportsOpacity: supportsOpacity, onBeginEditing: onBeginEditing, onEndEditing: onEndEditing)
+    }
     
     public var body: some View {
         HStack {
