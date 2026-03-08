@@ -496,6 +496,42 @@ final class CanvasInvalidationTests: XCTestCase {
             "View y=60 should map to document y=30 with scale(2). Got: \(documentPoint.y)")
     }
 
+    // MARK: - Draw rect intersection with content transform
+
+    func testDrawWithContentTransformRendersObjectOutsideViewportRange() async throws {
+        // contentTransform = scale(0.5): SVG 200x200 → viewport 100x100
+        // Object at SVG (120, 120, 40, 40): willDrawRect is outside the viewport range
+        //   (0-100) in object-space, but the object is visible at viewport (60, 60, 20, 20).
+        // The draw intersection check must convert the dirty rect to object space so the
+        //   object's willDrawRect is compared in the correct coordinate system.
+        let (db, delegate) = makeDatabaseWithContentTransform(Transform(scaleX: 0.5, y: 0.5))
+        delegate.reset()
+
+        let layer1 = makePathLayer(id: "rect1", rect: Rect(x: 120, y: 120, width: 40, height: 40))
+        let insertCmd = CanvasCommand<String>(.upsertLayer(.path(layer1), at: .last))
+        await performAndWait(db, insertCmd, delegate: delegate)
+
+        // Draw — the object should be rendered since it's visible in viewport space
+        let context = makeBitmapContext(width: 100, height: 100)
+        db.drawRect(CGRect(x: 0, y: 0, width: 100, height: 100), into: context)
+        delegate.reset()
+
+        // Update to a new position. If the object was drawn, didDrawRect was set and
+        //   the old position will produce a correct invalidation rect.
+        let layer2 = makePathLayer(id: "rect1", rect: Rect(x: 20, y: 20, width: 40, height: 40))
+        let updateCmd = CanvasCommand<String>(.upsertLayer(.path(layer2), at: .last))
+        await performAndWait(db, updateCmd, delegate: delegate)
+
+        let rects = delegate.allInvalidatedRects
+        let oldViewArea = CGRect(x: 60, y: 60, width: 20, height: 20)
+
+        XCTAssertTrue(
+            rects.contains(where: { $0.intersects(oldViewArea) }),
+            "Object at SVG (120, 120) should have been drawn (visible at viewport (60, 60)). "
+            + "Old position should be invalidated at view-space bounds. Got: \(rects)"
+        )
+    }
+
     // MARK: - Insert then delete in sequence
 
     func testInsertThenDeleteInvalidatesCorrectly() async throws {

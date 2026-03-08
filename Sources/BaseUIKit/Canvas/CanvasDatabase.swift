@@ -289,17 +289,19 @@ private extension CanvasDatabase {
         context.saveGState()
         context.clip(to: [intersectInViewCoords])
         locked_drawPasteboard(&memberData, in: context)
-        
+
         // Switch to document coords
         let intersectInDocumentCoords = intersectInViewCoords
             .applying(locked_transform(&memberData).inverted())
         context.concatenate(locked_transform(&memberData))
         locked_drawBackground(&memberData, intersectInDocumentCoords, in: context)
         context.concatenate(locked_contentAffineTransform(&memberData))
+        let intersectInObjectCoords = intersectInDocumentCoords
+            .applying(locked_contentAffineTransform(&memberData).inverted())
         for object in memberData.objectsInOrder {
-            object.draw(intersectInDocumentCoords, into: context, atScale: memberData.zoom, renderingCache: renderingCache)
+            object.draw(intersectInObjectCoords, into: context, atScale: memberData.zoom, renderingCache: renderingCache)
         }
-        
+
         context.restoreGState()
     }
         
