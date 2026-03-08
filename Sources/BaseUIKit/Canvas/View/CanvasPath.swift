@@ -223,9 +223,11 @@ private extension CanvasPath {
         with layer: PathLayer<ID>
     ) -> Set<CanvasInvalidation> {
         var didChange = false
+        var needsRenderedBezierUpdate = false
         memberData.layer = .path(layer)
         if memberData.transform != layer.transform {
             memberData.transform = layer.transform
+            needsRenderedBezierUpdate = true
             didChange = true
         }
         if memberData.opacity != layer.opacity {
@@ -243,9 +245,12 @@ private extension CanvasPath {
         }
         if memberData.bezier != layer.bezier {
             memberData.bezier = layer.bezier
+            needsRenderedBezierUpdate = true
+            didChange = true
+        }
+        if needsRenderedBezierUpdate {
             memberData.renderedBezier = memberData.bezier
             memberData.renderedBezier.transform(memberData.transform)
-            didChange = true
         }
         if memberData.shouldScaleWithZoom != layer.shouldScaleWithZoom {
             memberData.shouldScaleWithZoom = layer.shouldScaleWithZoom

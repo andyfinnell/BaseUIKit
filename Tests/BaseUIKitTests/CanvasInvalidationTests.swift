@@ -532,6 +532,81 @@ final class CanvasInvalidationTests: XCTestCase {
         )
     }
 
+    // MARK: - Transform-only update
+
+    func testUpdateTransformOnlyInvalidatesNewBounds() async throws {
+        let (db, delegate) = makeDatabase()
+        delegate.reset()
+
+        // Insert a layer at (10, 10, 50, 50) with identity transform
+        let layer1 = makePathLayer(id: "rect1", rect: Rect(x: 10, y: 10, width: 50, height: 50))
+        let insertCmd = CanvasCommand<String>(.upsertLayer(.path(layer1), at: .last))
+        await performAndWait(db, insertCmd, delegate: delegate)
+
+        let context = makeBitmapContext()
+        db.drawRect(CGRect(x: 0, y: 0, width: 500, height: 500), into: context)
+        delegate.reset()
+
+        // Update with same bezier but add a translate(100, 100) transform
+        // The element should now be at (110, 110, 50, 50)
+        let layer2 = PathLayer(
+            id: "rect1",
+            transform: Transform(translateX: 100, y: 100),
+            decorations: [.fill(Fill(paint: .solid(.red)))],
+            bezier: BezierPath(rect: Rect(x: 10, y: 10, width: 50, height: 50))
+        )
+        let updateCmd = CanvasCommand<String>(.upsertLayer(.path(layer2), at: .last))
+        await performAndWait(db, updateCmd, delegate: delegate)
+
+        let rects = delegate.allInvalidatedRects
+        let oldArea = CGRect(x: 10, y: 10, width: 50, height: 50)
+        let newArea = CGRect(x: 110, y: 110, width: 50, height: 50)
+
+        XCTAssertTrue(
+            rects.contains(where: { $0.intersects(oldArea) }),
+            "Should invalidate old bounds (didDrawRect). Got: \(rects)"
+        )
+        XCTAssertTrue(
+            rects.contains(where: { $0.intersects(newArea) }),
+            "Should invalidate new bounds after transform-only change. Got: \(rects)"
+        )
+    }
+
+    func testUpdateTransformOnlyUpdatesStructurePath() async throws {
+        let (db, delegate) = makeDatabase()
+        delegate.reset()
+
+        // Insert a layer at (10, 10, 50, 50) with identity transform
+        let layer1 = makePathLayer(id: "rect1", rect: Rect(x: 10, y: 10, width: 50, height: 50))
+        let insertCmd = CanvasCommand<String>(.upsertLayer(.path(layer1), at: .last))
+        await performAndWait(db, insertCmd, delegate: delegate)
+
+        // Get the initial structurePath bounds
+        let pathsBefore = db.structurePaths(byIDs: ["rect1"])
+        let boundsBefore = pathsBefore.first?.cgPath.boundingBoxOfPath ?? .zero
+
+        // Update with same bezier but add a translate(100, 100) transform
+        let layer2 = PathLayer(
+            id: "rect1",
+            transform: Transform(translateX: 100, y: 100),
+            decorations: [.fill(Fill(paint: .solid(.red)))],
+            bezier: BezierPath(rect: Rect(x: 10, y: 10, width: 50, height: 50))
+        )
+        let updateCmd = CanvasCommand<String>(.upsertLayer(.path(layer2), at: .last))
+        await performAndWait(db, updateCmd, delegate: delegate)
+
+        // Get the updated structurePath bounds
+        let pathsAfter = db.structurePaths(byIDs: ["rect1"])
+        let boundsAfter = pathsAfter.first?.cgPath.boundingBoxOfPath ?? .zero
+
+        XCTAssertEqual(boundsBefore.origin.x, 10, accuracy: 0.01,
+            "Initial structurePath should be at x=10")
+        XCTAssertEqual(boundsAfter.origin.x, 110, accuracy: 0.01,
+            "After translate(100, 100), structurePath should be at x=110. Got: \(boundsAfter.origin.x)")
+        XCTAssertEqual(boundsAfter.origin.y, 110, accuracy: 0.01,
+            "After translate(100, 100), structurePath should be at y=110. Got: \(boundsAfter.origin.y)")
+    }
+
     // MARK: - Insert then delete in sequence
 
     func testInsertThenDeleteInvalidatesCorrectly() async throws {
