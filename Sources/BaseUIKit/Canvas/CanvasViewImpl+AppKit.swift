@@ -78,6 +78,15 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
         }
     }
     
+    public override var acceptsFirstResponder: Bool { true }
+
+    public override func becomeFirstResponder() -> Bool {
+        // Forward first responder to the canvas document view
+        // so key events (arrow keys, etc.) reach the canvas.
+        window?.makeFirstResponder(canvasView)
+        return true
+    }
+
     @objc
     private func onScroll(_ notification: Notification) {
         canvasView.visibleOffset = documentVisibleRect.origin
@@ -182,6 +191,7 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
     }
     
     public override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
         if let e = makeEvent(from: event) {
             sendEvent(e)
         }
