@@ -5,21 +5,24 @@ import Synchronization
 
 public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
     let canvasView: CanvasViewImpl<ID>
-    
+    var onScrollPositionChanged: ((CGPoint) -> Void)?
+
     init(
         database: CanvasDatabase<ID>,
         onDimensionsChanged: ((CanvasViewDimensions) -> Void)?,
-        onEvent: ((Event) -> Void)?
+        onEvent: ((Event) -> Void)?,
+        onScrollPositionChanged: ((CGPoint) -> Void)? = nil
     ) {
+        self.onScrollPositionChanged = onScrollPositionChanged
         canvasView = CanvasViewImpl(
             database: database,
             onDimensionsChanged: onDimensionsChanged,
             onEvent: onEvent
         )
         canvasView.translatesAutoresizingMaskIntoConstraints = false
-        
+
         super.init(frame: .zero)
-        
+
         documentView = canvasView
         
         automaticallyAdjustsContentInsets = false
@@ -87,9 +90,14 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
         return true
     }
 
+    func notifyScrollPositionChanged() {
+        onScrollPositionChanged?(documentVisibleRect.origin)
+    }
+
     @objc
     private func onScroll(_ notification: Notification) {
         canvasView.visibleOffset = documentVisibleRect.origin
+        notifyScrollPositionChanged()
     }
 }
 
@@ -293,6 +301,7 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
     public override func scroll(_ point: NSPoint) {
         super.scroll(point)
         visibleOffset = point
+        canvasScrollView?.notifyScrollPositionChanged()
     }
 
 }

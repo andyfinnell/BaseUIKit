@@ -69,6 +69,7 @@ public struct ZoomSlider: View {
     private let displayRange: ClosedRange<Double>
     private let onBeginEditing: Callback<Void>
     private let onEndEditing: Callback<Void>
+    private let textFieldAccessibilityIdentifier: String?
     @State private var text: String = ""
     @State private var number: Double = 0.0
     @State private var isTextEditing = false
@@ -78,13 +79,15 @@ public struct ZoomSlider: View {
         value: ZoomFieldParser.Value,
         onChange: @escaping (ZoomFieldParser.Value) -> Void,
         onBeginEditing: @escaping () -> Void,
-        onEndEditing: @escaping () -> Void
+        onEndEditing: @escaping () -> Void,
+        textFieldAccessibilityIdentifier: String? = nil
     ) {
         self.value = SmartBind(value, onChange)
         self.range = 0.01...64.0
         self.displayRange = -1000.0...1000.0
         self.onBeginEditing = Callback(onBeginEditing)
         self.onEndEditing = Callback(onEndEditing)
+        self.textFieldAccessibilityIdentifier = textFieldAccessibilityIdentifier
     }
 
     public var body: some View {
@@ -126,6 +129,7 @@ public struct ZoomSlider: View {
                 .autocorrectionDisabled(true)
                 .multilineTextAlignment(.leading)
                 .labelsHidden()
+                .accessibilityIdentifier(textFieldAccessibilityIdentifier ?? "")
             }
             .controlSize(.mini)
         }

@@ -5,12 +5,15 @@ import Synchronization
 
 public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: UIScrollView {
     let canvasView: CanvasViewImpl<ID>
-    
+    var onScrollPositionChanged: ((CGPoint) -> Void)?
+
     init(
         database: CanvasDatabase<ID>,
         onDimensionsChanged: ((CanvasViewDimensions) -> Void)?,
-        onEvent: ((Event) -> Void)?
+        onEvent: ((Event) -> Void)?,
+        onScrollPositionChanged: ((CGPoint) -> Void)? = nil
     ) {
+        self.onScrollPositionChanged = onScrollPositionChanged
         canvasView = CanvasViewImpl(
             database: database,
             onDimensionsChanged: onDimensionsChanged,
@@ -91,6 +94,7 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: UIScrollView {
     public override var contentOffset: CGPoint {
         didSet {
             canvasView.visibleOffset = contentOffset
+            onScrollPositionChanged?(contentOffset)
         }
     }
 }

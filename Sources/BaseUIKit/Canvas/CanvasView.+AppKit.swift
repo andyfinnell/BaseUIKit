@@ -36,22 +36,26 @@ public struct CanvasScrollView<ID: Hashable & Sendable>: NSViewRepresentable {
     private let database: CanvasDatabase<ID>
     private let onDimensionsChanged: ((CanvasViewDimensions) -> Void)?
     private let onEvent: ((Event) -> Void)?
-    
+    private let onScrollPositionChanged: ((CGPoint) -> Void)?
+
     public init(
         database: CanvasDatabase<ID>,
         onDimensionsChanged: ((CanvasViewDimensions) -> Void)? = nil,
-        onEvent: ((Event) -> Void)? = nil
+        onEvent: ((Event) -> Void)? = nil,
+        onScrollPositionChanged: ((CGPoint) -> Void)? = nil
     ) {
         self.database = database
         self.onDimensionsChanged = onDimensionsChanged
         self.onEvent = onEvent
+        self.onScrollPositionChanged = onScrollPositionChanged
     }
-    
+
     public func makeNSView(context: Context) -> CanvasScrollViewImpl<ID> {
         CanvasScrollViewImpl(
             database: database,
             onDimensionsChanged: onDimensionsChanged,
-            onEvent: onEvent
+            onEvent: onEvent,
+            onScrollPositionChanged: onScrollPositionChanged
         )
     }
     
@@ -59,6 +63,7 @@ public struct CanvasScrollView<ID: Hashable & Sendable>: NSViewRepresentable {
         nsView.database = database
         nsView.onDimensionsChanged = onDimensionsChanged
         nsView.onEvent = onEvent
+        nsView.onScrollPositionChanged = onScrollPositionChanged
     }
 }
 
