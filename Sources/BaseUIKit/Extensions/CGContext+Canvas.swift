@@ -2,25 +2,19 @@ import CoreGraphics
 
 public extension CGContext {
     func drawCheckboard(_ rect: CGRect) {
-        // TODO: on macOS at least, this doesn't work well when scrolling
         guard let pattern = CGPattern.makeCheckerboard(),
             let patternColorspace = CGColorSpace(patternBaseSpace: nil) else {
             return
         }
-        
+
         saveGState()
         defer {
             restoreGState()
         }
-        
+
         var components: [CGFloat] = [1.0, 1.0, 1.0, 1.0]
         setFillColorSpace(patternColorspace)
-        setPatternPhase(
-            CGSize(
-                width: rect.minX.truncatingRemainder(dividingBy: 20),
-                height: rect.minY.truncatingRemainder(dividingBy: 20)
-            )
-        )
+        setPatternPhase(.zero)
         setFillPattern(pattern, colorComponents: &components)
         fill(rect)
     }
