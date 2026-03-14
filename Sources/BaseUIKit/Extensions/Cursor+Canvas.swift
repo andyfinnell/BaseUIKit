@@ -23,6 +23,14 @@ private extension Cursor {
         case .openHand: NSCursor.openHand
         case .closedHand: NSCursor.closedHand
         case .move: NSCursor.openHand
+        case .resizeNorth: NSCursor.frameResize(position: .top, directions: .all)
+        case .resizeSouth: NSCursor.frameResize(position: .bottom, directions: .all)
+        case .resizeEast: NSCursor.frameResize(position: .right, directions: .all)
+        case .resizeWest: NSCursor.frameResize(position: .left, directions: .all)
+        case .resizeNorthWest: NSCursor.frameResize(position: .topLeft, directions: .all)
+        case .resizeNorthEast: NSCursor.frameResize(position: .topRight, directions: .all)
+        case .resizeSouthWest: NSCursor.frameResize(position: .bottomLeft, directions: .all)
+        case .resizeSouthEast: NSCursor.frameResize(position: .bottomRight, directions: .all)
         }
     }
     #endif
