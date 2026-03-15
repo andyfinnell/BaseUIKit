@@ -164,6 +164,7 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.initialFirstResponder = self
+        window?.makeFirstResponder(self)
     }
     
     public nonisolated override func draw(_ dirtyRect: NSRect) {
