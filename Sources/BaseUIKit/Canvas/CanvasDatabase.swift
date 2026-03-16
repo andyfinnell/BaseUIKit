@@ -159,6 +159,14 @@ public extension CanvasDatabase {
             locked_effectBounds(&$0, ofIDs: ids)
         }
     }
+
+    /// Draws only the layers matching `ids` into the given context.
+    /// The context should already be configured with the desired coordinate transform.
+    func drawElements(ids: Set<ID>, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+        memberData.withLock { memberData in
+            locked_drawElements(&memberData, ids: ids, in: rect, into: context, atScale: scale)
+        }
+    }
 }
 
 #if os(macOS)
@@ -199,6 +207,12 @@ private extension CanvasDatabase {
         var cursor = BaseUIKit.Cursor.default
         var liveZoom: Double = 1.0
         var delegate = Delegate()
+    }
+    
+    func locked_drawElements(_  memberData: inout MemberData, ids: Set<ID>, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
+        for object in memberData.objectsInOrder where ids.contains(object.id) {
+            object.draw(rect, into: context, atScale: scale, renderingCache: renderingCache)
+        }
     }
     
     func locked_toEvent(_ memberData: inout MemberData) -> EventCanvas {
