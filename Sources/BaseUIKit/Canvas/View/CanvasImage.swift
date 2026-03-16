@@ -110,6 +110,10 @@ private extension CanvasImage {
             memberData.blendMode = layer.blendMode
             didChange = true
         }
+        if memberData.isVisible != layer.isVisible {
+            memberData.isVisible = layer.isVisible
+            didChange = true
+        }
         if memberData.width != layer.width {
             memberData.width = layer.width
             didChange = true

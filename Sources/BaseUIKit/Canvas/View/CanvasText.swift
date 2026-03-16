@@ -202,6 +202,10 @@ private extension CanvasText {
             memberData.blendMode = layer.blendMode
             didChange = true
         }
+        if memberData.isVisible != layer.isVisible {
+            memberData.isVisible = layer.isVisible
+            didChange = true
+        }
         if memberData.decorations != layer.decorations {
             memberData.decorations = layer.decorations
             didChange = true

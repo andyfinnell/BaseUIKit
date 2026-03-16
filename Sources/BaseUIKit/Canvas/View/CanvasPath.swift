@@ -238,6 +238,10 @@ private extension CanvasPath {
             memberData.blendMode = layer.blendMode
             didChange = true
         }
+        if memberData.isVisible != layer.isVisible {
+            memberData.isVisible = layer.isVisible
+            didChange = true
+        }
         // TODO: equivalent, not equal
         if memberData.decorations != layer.decorations {
             memberData.decorations = layer.decorations
