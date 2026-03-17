@@ -19,9 +19,10 @@ public struct PointerEvent: Hashable, Sendable {
     public let keyboardModifiers: KeyboardModifiers
     public let when: Date
     public let button: Button
+    public let clickCount: Int
     public let touches: Set<Touch>
     public let canvas: EventCanvas
-    
+
     public init(
         state: State,
         location: Point,
@@ -29,6 +30,7 @@ public struct PointerEvent: Hashable, Sendable {
         keyboardModifiers: KeyboardModifiers,
         when: Date,
         button: Button,
+        clickCount: Int = 1,
         touches: Set<Touch>,
         canvas: EventCanvas
     ) {
@@ -38,6 +40,7 @@ public struct PointerEvent: Hashable, Sendable {
         self.keyboardModifiers = keyboardModifiers
         self.when = when
         self.button = button
+        self.clickCount = clickCount
         self.touches = touches
         self.canvas = canvas
     }

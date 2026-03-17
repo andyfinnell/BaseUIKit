@@ -364,6 +364,7 @@ private extension CanvasViewImpl {
                 keyboardModifiers: event.map { keyboardModifiers(for: $0) } ?? [],
                 when: timestamp(for: primaryTouch),
                 button: .left,
+                clickCount: primaryTouch.tapCount,
                 touches: Set(allTouches.map { makeTouch(from: $0) }),
                 canvas: eventCanvas()
             )

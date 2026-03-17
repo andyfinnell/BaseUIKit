@@ -385,6 +385,7 @@ private extension CanvasViewImpl {
                 keyboardModifiers: keyboardModifiers(for: event),
                 when: timestamp(for: event),
                 button: button,
+                clickCount: event.clickCount,
                 touches: Set(),
                 canvas: eventCanvas()
             )
