@@ -89,7 +89,7 @@ private extension CanvasImage {
         var isVisible: Bool
         var width: Double
         var height: Double
-        var imageData: Data
+        var imageData: Data?
         var clipRect: Rect?
         var filter: FilterLayer?
         var imageCache: CGImage?
@@ -191,20 +191,42 @@ private extension CanvasImage {
     }
 
     func locked_drawSelf(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
-        // Flip the image
         let bounds = CGRect(x: 0, y: 0, width: memberData.width, height: memberData.height)
-        context.translateBy(x: 0, y: bounds.height)
-        context.scaleBy(x: 1, y: -1)
-        if let image = locked_image(&memberData) {
+
+        if memberData.imageData != nil, let image = locked_image(&memberData) {
+            // Flip the image (CGContext has flipped Y axis)
+            context.translateBy(x: 0, y: bounds.height)
+            context.scaleBy(x: 1, y: -1)
             context.draw(image, in: bounds)
+        } else {
+            locked_drawBrokenImagePlaceholder(&memberData, in: bounds, into: context)
         }
+    }
+
+    func locked_drawBrokenImagePlaceholder(_ memberData: inout MemberData, in bounds: CGRect, into context: CGContext) {
+        let strokeWidth = max(1.0, min(bounds.width, bounds.height) * 0.02)
+
+        // Red border rectangle
+        context.setStrokeColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.setLineWidth(strokeWidth)
+        let inset = strokeWidth / 2
+        context.stroke(bounds.insetBy(dx: inset, dy: inset))
+
+        // Red X from corner to corner
+        context.beginPath()
+        context.move(to: CGPoint(x: bounds.minX, y: bounds.minY))
+        context.addLine(to: CGPoint(x: bounds.maxX, y: bounds.maxY))
+        context.move(to: CGPoint(x: bounds.maxX, y: bounds.minY))
+        context.addLine(to: CGPoint(x: bounds.minX, y: bounds.maxY))
+        context.strokePath()
     }
 
     func locked_image(_ memberData: inout MemberData) -> CGImage? {
         if let imageCache = memberData.imageCache {
             return imageCache
         }
-        guard let source = CGImageSourceCreateWithData(memberData.imageData as CFData,
+        guard let imageData = memberData.imageData,
+              let source = CGImageSourceCreateWithData(imageData as CFData,
                                                        [kCGImageSourceShouldCache: true] as CFDictionary) else {
             return nil
         }
