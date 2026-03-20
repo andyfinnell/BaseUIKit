@@ -19,4 +19,6 @@ protocol CanvasObject<ID>: AnyObject, Sendable {
     func hitTest(_ location: CGPoint) -> Bool
     func intersects(_ rect: CGRect) -> Bool
     func contained(by rect: CGRect) -> Bool
+    
+    func textIndex(at location: CGPoint) -> Int?
 }

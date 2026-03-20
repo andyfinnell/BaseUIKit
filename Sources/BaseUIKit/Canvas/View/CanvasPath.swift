@@ -92,6 +92,10 @@ extension CanvasPath: CanvasObject{
             $0.renderedBezier
         }
     }
+    
+    func textIndex(at location: CGPoint) -> Int? {
+        nil
+    }
 }
 
 private extension CanvasPath {

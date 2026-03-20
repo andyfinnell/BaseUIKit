@@ -119,6 +119,12 @@ extension CanvasText: CanvasObject {
         }
         return BezierPath(path)
     }
+
+    func textIndex(at point: CGPoint) -> Int? {
+        memberData.withLock {
+            locked_textIndex(&$0, at: point)
+        }
+    }
 }
 
 private extension CanvasText {
@@ -163,7 +169,7 @@ private extension CanvasText {
                 self?.blinkCursor()
             })
         }
-        // TODO: invalidate()
+        invalidateCursor()
     }
 
     func stopCursor() {
@@ -177,11 +183,31 @@ private extension CanvasText {
         memberData.withLock {
             $0.isCursorOn.toggle()
         }
-        // TODO: invalidate()
+        invalidateCursor()
     }
     
     func invalidateCursor() {
         invalidateRects([willDrawRect, didDrawRect])
+    }
+
+    func locked_textIndex(_ memberData: inout MemberData, at point: CGPoint) -> Int? {
+        guard let inverseTransform = memberData.transform.inverted() else {
+            return nil
+        }
+        
+        // Transform from content space into the text's local space
+        let localPoint = inverseTransform.applying(to: Point(point)).toCG
+        
+        // Flip from top-down to CoreText bottom-up coordinates
+        let bounds = locked_structureBounds(&memberData)
+        let coreTextPoint = CGPoint(x: localPoint.x, y: bounds.height - localPoint.y)
+        
+        return coreText.closestStringIndex(
+            at: coreTextPoint,
+            fromRuns: memberData.runs,
+            autosize: memberData.autosize,
+            width: memberData.width
+        )
     }
 
     func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
@@ -429,6 +455,12 @@ private final class ProtectedCoreText: @unchecked Sendable {
             queued_caretRect(at: position, fromRuns: runs, autosize: autosize, width: width)
         }
     }
+
+    func closestStringIndex(at point: CGPoint, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> Int {
+        queue.sync {
+            queued_closestStringIndex(at: point, fromRuns: runs, autosize: autosize, width: width)
+        }
+    }
 }
 
 private extension ProtectedCoreText {
@@ -624,6 +656,46 @@ private extension ProtectedCoreText {
             width: caretWidth,
             height: ascent + descent
         )
+    }
+
+    func queued_closestStringIndex(at point: CGPoint, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> Int {
+        let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
+        let lines = frame.lines
+        let lineOrigins = frame.lineOrigins
+
+        guard !lines.isEmpty else {
+            return 0
+        }
+
+        // Find the closest line by vertical distance to the point
+        var closestLine = lines[0]
+        var closestLineOrigin = lineOrigins[0]
+        var closestDistance = CGFloat.greatestFiniteMagnitude
+
+        for (line, lineOrigin) in zip(lines, lineOrigins) {
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+
+            let lineTop = lineOrigin.y + ascent
+            let lineBottom = lineOrigin.y - descent
+
+            let distance: CGFloat
+            if point.y >= lineBottom && point.y <= lineTop {
+                distance = 0
+            } else {
+                distance = min(abs(point.y - lineTop), abs(point.y - lineBottom))
+            }
+
+            if distance < closestDistance {
+                closestDistance = distance
+                closestLine = line
+                closestLineOrigin = lineOrigin
+            }
+        }
+
+        let localX = point.x - closestLineOrigin.x
+        return CTLineGetStringIndexForPosition(closestLine, CGPoint(x: localX, y: 0))
     }
 
     func queued_cgPath(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGPath {

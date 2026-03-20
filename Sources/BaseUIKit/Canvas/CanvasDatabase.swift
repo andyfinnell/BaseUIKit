@@ -167,6 +167,15 @@ public extension CanvasDatabase {
             locked_drawElements(&memberData, ids: ids, in: rect, into: context, atScale: scale)
         }
     }
+
+    /// Returns the character index in the text layer closest to the given point.
+    /// The point is in content/object space (same coordinate space as `CanvasQuery.underLocation`).
+    /// Returns nil if the ID does not refer to a text layer.
+    func textIndex(at point: Point, in layerID: ID) -> Int? {
+        memberData.withLock {
+            locked_textIndex(&$0, at: point, in: layerID)
+        }
+    }
 }
 
 #if os(macOS)
@@ -209,6 +218,13 @@ private extension CanvasDatabase {
         var delegate = Delegate()
     }
     
+    func locked_textIndex(_ memberData: inout MemberData, at point: Point, in layerID: ID) -> Int? {
+        guard let canvasText = memberData.objectById[layerID] else {
+            return nil
+        }
+        return canvasText.textIndex(at: point.toCG)
+    }
+
     func locked_drawElements(_  memberData: inout MemberData, ids: Set<ID>, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
         for object in memberData.objectsInOrder where ids.contains(object.id) {
             object.draw(rect, into: context, atScale: scale, renderingCache: renderingCache)

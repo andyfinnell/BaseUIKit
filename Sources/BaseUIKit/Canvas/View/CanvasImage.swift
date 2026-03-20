@@ -77,6 +77,10 @@ extension CanvasImage: CanvasObject {
         let globalBounds = memberData.withLock { locked_globalBounds(&$0) }
         return BezierPath(rect: Rect(globalBounds))
     }
+    
+    func textIndex(at location: CGPoint) -> Int? {
+        nil
+    }
 }
 
 private extension CanvasImage {
