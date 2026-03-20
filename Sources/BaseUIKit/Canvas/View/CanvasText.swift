@@ -22,15 +22,18 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
     let id: ID
     private let memberData: Mutex<MemberData>
     private let coreText = ProtectedCoreText()
-
-    var didDrawRect: CGRect { memberData.withLock { $0.didDrawRect } }
+    private let nonsendableData = Mutex(NonsendableData())
+    private let invalidateRects: @Sendable ([CGRect]) -> Void
     
+    var didDrawRect: CGRect { memberData.withLock { $0.didDrawRect } }
+
     var layer: Layer<ID> {
         memberData.withLock { $0.layer }
     }
-                
-    init(layer: TextLayer<ID>) {
+
+    init(layer: TextLayer<ID>, invalidateRects: @escaping @Sendable ([CGRect]) -> Void) {
         self.id = layer.id
+        self.invalidateRects = invalidateRects
         self.memberData = Mutex(
             MemberData(
                 didDrawRect: .zero,
@@ -43,50 +46,66 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
                 autosize: layer.autosize,
                 width: layer.width,
                 runs: layer.runs,
-                filter: layer.filter
+                filter: layer.filter,
+                cursor: layer.cursor,
+                selection: layer.selection
             )
         )
     }
-    
-}
 
+    deinit {
+        nonsendableData.withLock {
+            $0.cursorTimer?.invalidate()
+            $0.cursorTimer = nil
+        }
+    }
+}
 
 extension CanvasText: CanvasObject {
     func updateLayer(_ layer: Layer<ID>) -> Set<CanvasInvalidation> {
         guard case let .text(textLayer) = layer else {
             return Set()
         }
-        return memberData.withLock {
+        let (invalidations, cursorAction) = memberData.withLock {
             locked_update(&$0, with: textLayer)
         }
+        switch cursorAction {
+        case .startOrRestart:
+            startCursor()
+        case .stop:
+            stopCursor()
+        case .none:
+            break
+        }
+        return invalidations
     }
-    
+
     var willDrawRect: CGRect {
         memberData.withLock {
             locked_willDrawRect(&$0)
         }
     }
-    
+
     func draw(_ rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         memberData.withLock {
             locked_draw(&$0, in: rect, into: context, atScale: scale, renderingCache: renderingCache)
         }
     }
-    
+
     func hitTest(_ location: CGPoint) -> Bool {
         let path = memberData.withLock {
             locked_cgPath(&$0)
         }
         return path.contains(location)
     }
-    
+
     func intersects(_ rect: CGRect) -> Bool {
         let path = memberData.withLock {
             locked_cgPath(&$0)
         }
         return path.intersects(CGPath(rect: rect, transform: nil))
     }
-    
+
     func contained(by rect: CGRect) -> Bool {
         let path = memberData.withLock {
             locked_cgPath(&$0)
@@ -103,6 +122,12 @@ extension CanvasText: CanvasObject {
 }
 
 private extension CanvasText {
+    enum CursorAction {
+        case none
+        case startOrRestart
+        case stop
+    }
+
     struct MemberData: Sendable {
         var didDrawRect: CGRect
         var layer: Layer<ID>
@@ -115,8 +140,50 @@ private extension CanvasText {
         var width: Double
         var runs: [TextRun]
         var filter: FilterLayer?
+        var cursor: TextCursor?
+        var selection: TextSelection?
+        var isCursorOn = true
     }
+    
+    struct NonsendableData {
+        var cursorTimer: Timer?
+    }
+
+    func startCursor() {
+        memberData.withLock {
+            // Start on
+            $0.isCursorOn = true
+        }
         
+        nonsendableData.withLock {
+            $0.cursorTimer?.invalidate()
+            $0.cursorTimer = nil
+
+            $0.cursorTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true, block: { [weak self] _ in
+                self?.blinkCursor()
+            })
+        }
+        // TODO: invalidate()
+    }
+
+    func stopCursor() {
+        nonsendableData.withLock {
+            $0.cursorTimer?.invalidate()
+            $0.cursorTimer = nil
+        }
+    }
+    
+    func blinkCursor() {
+        memberData.withLock {
+            $0.isCursorOn.toggle()
+        }
+        // TODO: invalidate()
+    }
+    
+    func invalidateCursor() {
+        invalidateRects([willDrawRect, didDrawRect])
+    }
+
     func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         guard locked_willDrawRect(&memberData).intersects(rect) else {
             return
@@ -155,17 +222,58 @@ private extension CanvasText {
     }
 
     func locked_drawSelf(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
-        guard !memberData.runs.isEmpty else {
+        let bounds = locked_structureBounds(&memberData)
+
+        if !memberData.runs.isEmpty {
+            let path = locked_cgPath(&memberData)
+            for decoration in memberData.decorations {
+                setPath(path, with: bounds, in: context)
+                decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
+            }
+        }
+
+        locked_drawSelectionAndCursor(bounds: bounds, memberData: &memberData, into: context)
+    }
+
+    func locked_drawSelectionAndCursor(
+        bounds: CGRect,
+        memberData: inout MemberData,
+        into context: CGContext
+    ) {
+        let hasSelection = memberData.selection != nil
+        let hasCursor = memberData.cursor != nil
+        guard hasSelection || hasCursor else {
             return
         }
 
-        let bounds = locked_structureBounds(&memberData)
-        let path = locked_cgPath(&memberData)
+        // Flip to CoreText coordinates (origin bottom-left)
+        context.saveGState()
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
 
-        for decoration in memberData.decorations {
-            setPath(path, with: bounds, in: context)
-            decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
+        if let selection = memberData.selection {
+            let selectionRects = coreText.selectionRects(
+                for: selection,
+                fromRuns: memberData.runs,
+                autosize: memberData.autosize,
+                width: memberData.width
+            )
+            selection.color.setFill(in: context)
+            context.fill(selectionRects)
         }
+
+        if let cursor = memberData.cursor, memberData.isCursorOn {
+            let caretRect = coreText.caretRect(
+                at: cursor.position,
+                fromRuns: memberData.runs,
+                autosize: memberData.autosize,
+                width: memberData.width
+            )
+            cursor.color.setFill(in: context)
+            context.fill([caretRect])
+        }
+
+        context.restoreGState()
     }
 
     func locked_structureBounds(_ memberData: inout MemberData) -> CGRect {
@@ -175,7 +283,7 @@ private extension CanvasText {
             width: memberData.width
         )
     }
-    
+
     func locked_cgPath(_ memberData: inout MemberData) -> CGPath {
         coreText.bezierPath(
             fromRuns: memberData.runs,
@@ -183,12 +291,14 @@ private extension CanvasText {
             width: memberData.width
         ).cgPath
     }
-    
+
     func locked_update(
         _ memberData: inout MemberData,
         with layer: TextLayer<ID>
-    ) -> Set<CanvasInvalidation> {
+    ) -> (Set<CanvasInvalidation>, CursorAction) {
         var didChange = false
+        var cursorAction = CursorAction.none
+
         memberData.layer = .text(layer)
         if memberData.transform != layer.transform {
             memberData.transform = layer.transform
@@ -227,25 +337,44 @@ private extension CanvasText {
             memberData.filter = layer.filter
             didChange = true
         }
+        if memberData.cursor != layer.cursor {
+            let hadCursor = memberData.cursor != nil
+            memberData.cursor = layer.cursor
+            didChange = true
+
+            if layer.cursor != nil {
+                cursorAction = .startOrRestart
+            } else if hadCursor {
+                cursorAction = .stop
+            }
+        }
+        if memberData.selection != layer.selection {
+            memberData.selection = layer.selection
+            didChange = true
+        }
+
         if didChange {
-            return Set([.invalidateRect(memberData.didDrawRect), .invalidateRect(locked_willDrawRect(&memberData))])
+            return (
+                Set([.invalidateRect(memberData.didDrawRect), .invalidateRect(locked_willDrawRect(&memberData))]),
+                cursorAction
+            )
         } else {
-            return Set()
+            return (Set(), cursorAction)
         }
     }
 
     func locked_effectiveBounds(_ memberData: inout MemberData) -> CGRect {
         memberData.decorations.effectiveBounds(for: locked_structureBounds(&memberData))
     }
-    
+
     func locked_globalEffectiveBounds(_ memberData: inout MemberData) -> CGRect {
         memberData.transform.apply(to: locked_effectiveBounds(&memberData))
     }
-    
+
     func locked_willDrawRect(_ memberData: inout MemberData) -> CGRect {
         locked_globalEffectiveBounds(&memberData)
     }
-    
+
     func setPath(_ path: CGPath, with bounds: CGRect, in context: CGContext) {
         context.saveGState()
         context.translateBy(x: 0, y: bounds.height)
@@ -255,16 +384,18 @@ private extension CanvasText {
     }
 }
 
+// MARK: - CoreText
+
 /// These all have to be accessed from the same work queue in order to be thread safe
 private final class ProtectedCoreText: @unchecked Sendable {
     private var framesetterCache: CTFramesetter?
     private var attributedStringCache: NSAttributedString?
     private var cgPathCache: CGPath?
     private let queue = DispatchQueue(label: "ProtectedCoreText")
-    
+
     init() {
     }
-    
+
     func clear() {
         queue.sync {
             framesetterCache = nil
@@ -272,18 +403,30 @@ private final class ProtectedCoreText: @unchecked Sendable {
             cgPathCache = nil
         }
     }
-    
+
     func structureBounds(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGRect {
         queue.sync {
             queued_structureBounds(fromRuns: runs, autosize: autosize, width: width)
         }
     }
-    
+
     /// Use a BezierPath since it's Sendable across isolation contexts
     func bezierPath(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> BezierPath {
         queue.sync {
             let cgPath = queued_cgPath(fromRuns: runs, autosize: autosize, width: width)
             return BezierPath(cgPath)
+        }
+    }
+
+    func selectionRects(for selection: TextSelection, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> [CGRect] {
+        queue.sync {
+            queued_selectionRects(for: selection, fromRuns: runs, autosize: autosize, width: width)
+        }
+    }
+
+    func caretRect(at position: Int, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGRect {
+        queue.sync {
+            queued_caretRect(at: position, fromRuns: runs, autosize: autosize, width: width)
         }
     }
 }
@@ -305,7 +448,7 @@ private extension ProtectedCoreText {
         if autosize {
             constraints.width = .greatestFiniteMagnitude
         }
-        
+
         let frameSize = CTFramesetterSuggestFrameSizeWithConstraints(
             queued_framesetter(fromRuns: runs),
             CFRange(location: 0, length: 0),
@@ -313,7 +456,7 @@ private extension ProtectedCoreText {
             constraints,
             nil
         )
-        
+
         var bounds = CGRect(x: 0, y: 0, width: frameSize.width, height: frameSize.height)
         if !autosize {
             bounds.size.width = width
@@ -345,14 +488,14 @@ private extension ProtectedCoreText {
             boundsPath,
             nil
         )
-        
+
         // Iterate the lines
         let frameOrigin = CGPoint.zero
         let lines = frame.lines
         guard !lines.isEmpty else {
             return []
         }
-        
+
         var renderedRuns = [RenderedTextRun]()
         for (line, lineOrigin) in zip(lines, frame.lineOrigins) {
             var runOrigin = frameOrigin + lineOrigin
@@ -379,7 +522,110 @@ private extension ProtectedCoreText {
         let substring = queued_attributedString(fromRuns: runs).attributedSubstring(from: NSRange(location: range.location, length: range.length))
         return substring.string
     }
-        
+
+    func queued_frame(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CTFrame {
+        let bounds = queued_framesetterBounds(fromRuns: runs, autosize: autosize, width: width)
+        let boundsPath = CGMutablePath(rect: bounds, transform: nil)
+        return CTFramesetterCreateFrame(
+            queued_framesetter(fromRuns: runs),
+            CFRange(location: 0, length: 0),
+            boundsPath,
+            nil
+        )
+    }
+
+    func queued_selectionRects(for selection: TextSelection, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> [CGRect] {
+        let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
+        let lines = frame.lines
+        let lineOrigins = frame.lineOrigins
+        guard !lines.isEmpty else {
+            return []
+        }
+
+        var rects = [CGRect]()
+        for (line, lineOrigin) in zip(lines, lineOrigins) {
+            let lineRange = CTLineGetStringRange(line)
+            let lineStart = lineRange.location
+            let lineEnd = lineRange.location + lineRange.length
+
+            guard selection.end > lineStart && selection.start < lineEnd else {
+                continue
+            }
+
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            var leading: CGFloat = 0
+            CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
+
+            let clampedStart = max(selection.start, lineStart)
+            let clampedEnd = min(selection.end, lineEnd)
+            let startX = CTLineGetOffsetForStringIndex(line, clampedStart, nil)
+            let endX = CTLineGetOffsetForStringIndex(line, clampedEnd, nil)
+
+            let rect = CGRect(
+                x: lineOrigin.x + startX,
+                y: lineOrigin.y - descent,
+                width: endX - startX,
+                height: ascent + descent
+            )
+            rects.append(rect)
+        }
+
+        return rects
+    }
+
+    func queued_caretRect(at position: Int, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGRect {
+        let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
+        let lines = frame.lines
+        let lineOrigins = frame.lineOrigins
+        let caretWidth: CGFloat = 1.0
+
+        guard !lines.isEmpty else {
+            let bounds = queued_structureBounds(fromRuns: runs, autosize: autosize, width: width)
+            return CGRect(x: 0, y: 0, width: caretWidth, height: bounds.height)
+        }
+
+        // Find the line containing the position
+        for (line, lineOrigin) in zip(lines, lineOrigins) {
+            let lineRange = CTLineGetStringRange(line)
+            let lineStart = lineRange.location
+            let lineEnd = lineRange.location + lineRange.length
+
+            // Position is within this line, or at the end of the last character
+            guard position >= lineStart && position <= lineEnd else {
+                continue
+            }
+
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            var leading: CGFloat = 0
+            CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
+
+            let xOffset = CTLineGetOffsetForStringIndex(line, position, nil)
+            return CGRect(
+                x: lineOrigin.x + xOffset - caretWidth / 2.0,
+                y: lineOrigin.y - descent,
+                width: caretWidth,
+                height: ascent + descent
+            )
+        }
+
+        // Fallback: position past the end of all text, use last line
+        let lastLine = lines[lines.count - 1]
+        let lastOrigin = lineOrigins[lineOrigins.count - 1]
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        var leading: CGFloat = 0
+        CTLineGetTypographicBounds(lastLine, &ascent, &descent, &leading)
+        let xOffset = CTLineGetOffsetForStringIndex(lastLine, position, nil)
+        return CGRect(
+            x: lastOrigin.x + xOffset - caretWidth / 2.0,
+            y: lastOrigin.y - descent,
+            width: caretWidth,
+            height: ascent + descent
+        )
+    }
+
     func queued_cgPath(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGPath {
         if let cgPathCache {
             return cgPathCache
@@ -393,16 +639,16 @@ private extension ProtectedCoreText {
             boundsPath,
             nil
         )
-        
+
         // Iterate the lines
         let finalPath = CGMutablePath()
         let frameOrigin = CGPoint.zero
         let lines = frame.lines
-        
+
         guard !lines.isEmpty else {
             return finalPath
         }
-                
+
         for (line, lineOrigin) in zip(lines, frame.lineOrigins) {
             for run in line.runs {
                 let coreFont = run.font as CTFont
@@ -421,39 +667,39 @@ private extension ProtectedCoreText {
                 }
             }
         }
-        
+
         cgPathCache = finalPath
-        
+
         return finalPath
     }
-    
+
     func queued_attributedString(fromRuns runs: [TextRun]) -> NSAttributedString {
         if let attributedStringCache {
             return attributedStringCache
         }
-        
+
         let attributedString = runs.reduce(into: NSMutableAttributedString()) { partial, run in
             partial.append(queued_attributedString(from: run))
         }
-        
+
         if let lastCh = attributedString.string.last, lastCh == "\n" {
             attributedString.append(NSAttributedString(string: " "))
         }
-        
+
         self.attributedStringCache = attributedString
-        
+
         return attributedString
     }
-    
+
     func queued_attributedString(from run: TextRun) -> NSAttributedString {
         NSAttributedString(string: run.text, attributes: queued_attributes(from: run.attributes))
     }
-    
+
     func queued_attributes(from attributes: [TextRun.Attribute]) -> [NSAttributedString.Key: Any] {
         var fontName = "Helvetica"
         var fontSize: CGFloat = 12.0
         var textAlignment: NSTextAlignment?
-        
+
         for attribute in attributes {
             switch attribute {
             case let .fontName(name):
@@ -464,19 +710,19 @@ private extension ProtectedCoreText {
                 textAlignment = align.toNative
             }
         }
-        
+
         var attributeDictionary = [NSAttributedString.Key: Any]()
         attributeDictionary[.font] = Font(name: fontName, size: fontSize).native
-        
+
         if let textAlignment {
             let paragraphStyle = NSMutableParagraphStyle()
             paragraphStyle.alignment = textAlignment
             attributeDictionary[.paragraphStyle] = paragraphStyle
         }
-        
+
         return attributeDictionary
     }
-    
+
     func queued_attributes(from attributeDictionary: [NSAttributedString.Key: Any]) -> [TextRun.Attribute] {
         var attributes = [TextRun.Attribute]()
         if let font = attributeDictionary[.font] as? NativeFont {

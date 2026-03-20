@@ -913,11 +913,27 @@ private extension CanvasDatabase {
         case let .image(imageLayer):
             CanvasImage(layer: imageLayer)
         case let .text(textLayer):
-            CanvasText(layer: textLayer)
+            CanvasText(layer: textLayer) { [weak self] rects in
+                self?.invalidateRects(rects)
+            }
         case let .path(pathLayer):
             CanvasPath(layer: pathLayer)
         case .computed:
             nil
         }
     }
+    
+    func invalidateRects(_ rects: [CGRect]) {
+        let (invalidates, delegate) = memberData.withLock { memberData in
+            var invalidates = Set<CanvasInvalidation>()
+            for rect in rects {
+                locked_invalidateRect(&memberData, rect, into: &invalidates)
+            }
+            return (invalidates, memberData.delegate)
+        }
+        Task { @MainActor in
+            delegate.invalidate(invalidates)
+        }
+    }
+
 }
