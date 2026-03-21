@@ -121,26 +121,32 @@ extension CanvasText: CanvasObject {
     }
 
     func textIndex(at point: CGPoint) -> TextPosition? {
-        memberData.withLock { (memberData: inout MemberData) -> TextPosition? in
-            locked_textIndex(&memberData, at: point)
+        memberData.withLock {
+            locked_textIndex(&$0, at: point)
         }
     }
 
     func textRects(for range: TextRange) -> [CGRect]? {
-        memberData.withLock { memberData in
-            locked_textRects(&memberData, for: range)
+        memberData.withLock {
+            locked_textRects(&$0, for: range)
         }
     }
 
     func navigateText(_ navigation: TextNavigation, from position: TextPosition) -> TextPosition? {
-        memberData.withLock { memberData in
+        memberData.withLock {
             coreText.navigateText(
                 navigation,
                 from: position,
-                fromRuns: memberData.runs,
-                autosize: memberData.autosize,
-                width: memberData.width
+                fromRuns: $0.runs,
+                autosize: $0.autosize,
+                width: $0.width
             )
+        }
+    }
+
+    func caretRect(at position: TextPosition) -> CGRect? {
+        memberData.withLock {
+            locked_caretRect(&$0, at: position)
         }
     }
 }
@@ -246,6 +252,24 @@ private extension CanvasText {
                 height: rect.height
             )
         }
+    }
+
+    func locked_caretRect(_ memberData: inout MemberData, at position: TextPosition) -> CGRect {
+        let bounds = locked_structureBounds(&memberData)
+        let coreTextRect = coreText.caretRect(
+            at: position,
+            fromRuns: memberData.runs,
+            autosize: memberData.autosize,
+            width: memberData.width
+        )
+
+        // CoreText rect is in bottom-up coordinates; flip to top-down
+        return CGRect(
+            x: coreTextRect.origin.x,
+            y: bounds.height - coreTextRect.origin.y - coreTextRect.height,
+            width: coreTextRect.width,
+            height: coreTextRect.height
+        )
     }
 
     func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {

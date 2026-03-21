@@ -193,6 +193,14 @@ public extension CanvasDatabase {
             locked_navigateText(&$0, navigation, from: position, in: layerID)
         }
     }
+
+    /// Returns the rect where the text insertion caret should be rendered for the given position.
+    /// Returns nil if the ID does not refer to a text layer.
+    func caretRect(at position: TextPosition, in layerID: ID) -> Rect? {
+        memberData.withLock {
+            locked_caretRect(&$0, at: position, in: layerID)
+        }
+    }
 }
 
 #if os(macOS)
@@ -254,6 +262,13 @@ private extension CanvasDatabase {
             return nil
         }
         return canvasText.navigateText(navigation, from: position)
+    }
+
+    func locked_caretRect(_ memberData: inout MemberData, at position: TextPosition, in layerID: ID) -> Rect? {
+        guard let canvasText = memberData.objectById[layerID] else {
+            return nil
+        }
+        return canvasText.caretRect(at: position).map { Rect($0) }
     }
 
     func locked_drawElements(_  memberData: inout MemberData, ids: Set<ID>, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {

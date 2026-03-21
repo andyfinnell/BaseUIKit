@@ -89,6 +89,10 @@ extension CanvasImage: CanvasObject {
     func navigateText(_ navigation: TextNavigation, from position: TextPosition) -> TextPosition? {
         nil
     }
+
+    func caretRect(at position: TextPosition) -> CGRect? {
+        nil
+    }
 }
 
 private extension CanvasImage {

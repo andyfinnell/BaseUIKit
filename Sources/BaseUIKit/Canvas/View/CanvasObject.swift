@@ -23,4 +23,5 @@ protocol CanvasObject<ID>: AnyObject, Sendable {
     func textIndex(at location: CGPoint) -> TextPosition?
     func textRects(for range: TextRange) -> [CGRect]?
     func navigateText(_ navigation: TextNavigation, from position: TextPosition) -> TextPosition?
+    func caretRect(at position: TextPosition) -> CGRect?
 }
