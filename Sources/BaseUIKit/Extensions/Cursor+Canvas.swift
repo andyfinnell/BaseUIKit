@@ -31,6 +31,7 @@ private extension Cursor {
         case .resizeNorthEast: NSCursor.frameResize(position: .topRight, directions: .all)
         case .resizeSouthWest: NSCursor.frameResize(position: .bottomLeft, directions: .all)
         case .resizeSouthEast: NSCursor.frameResize(position: .bottomRight, directions: .all)
+        case .iBeam: NSCursor.iBeam
         }
     }
     #endif
