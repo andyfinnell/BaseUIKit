@@ -1,6 +1,4 @@
 import BaseKit
-import Foundation
-import BaseKit
 
 public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiable {
     public let id: ID
@@ -13,8 +11,6 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
     public let autosize: Bool
     public let width: Double
     public let filter: FilterLayer?
-    public let cursor: TextCursor?
-    public let selection: TextSelection?
 
     public init(
         id: ID,
@@ -26,9 +22,7 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         runs: [TextRun],
         autosize: Bool,
         width: Double,
-        filter: FilterLayer? = nil,
-        cursor: TextCursor? = nil,
-        selection: TextSelection? = nil
+        filter: FilterLayer? = nil
     ) {
         self.id = id
         self.transform = transform
@@ -40,7 +34,5 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         self.autosize = autosize
         self.width = width
         self.filter = filter
-        self.cursor = cursor
-        self.selection = selection
     }
 }

@@ -975,9 +975,7 @@ private extension CanvasDatabase {
         case let .image(imageLayer):
             CanvasImage(layer: imageLayer)
         case let .text(textLayer):
-            CanvasText(layer: textLayer) { [weak self] rects in
-                self?.invalidateRects(rects)
-            }
+            CanvasText(layer: textLayer)
         case let .path(pathLayer):
             CanvasPath(layer: pathLayer)
         case .computed:

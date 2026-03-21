@@ -22,18 +22,15 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
     let id: ID
     private let memberData: Mutex<MemberData>
     private let coreText = ProtectedCoreText()
-    private let nonsendableData = Mutex(NonsendableData())
-    private let invalidateRects: @Sendable ([CGRect]) -> Void
-    
+
     var didDrawRect: CGRect { memberData.withLock { $0.didDrawRect } }
 
     var layer: Layer<ID> {
         memberData.withLock { $0.layer }
     }
 
-    init(layer: TextLayer<ID>, invalidateRects: @escaping @Sendable ([CGRect]) -> Void) {
+    init(layer: TextLayer<ID>) {
         self.id = layer.id
-        self.invalidateRects = invalidateRects
         self.memberData = Mutex(
             MemberData(
                 didDrawRect: .zero,
@@ -46,18 +43,9 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
                 autosize: layer.autosize,
                 width: layer.width,
                 runs: layer.runs,
-                filter: layer.filter,
-                cursor: layer.cursor,
-                selection: layer.selection
+                filter: layer.filter
             )
         )
-    }
-
-    deinit {
-        nonsendableData.withLock {
-            $0.cursorTimer?.invalidate()
-            $0.cursorTimer = nil
-        }
     }
 }
 
@@ -66,18 +54,9 @@ extension CanvasText: CanvasObject {
         guard case let .text(textLayer) = layer else {
             return Set()
         }
-        let (invalidations, cursorAction) = memberData.withLock {
+        return memberData.withLock {
             locked_update(&$0, with: textLayer)
         }
-        switch cursorAction {
-        case .startOrRestart:
-            startCursor()
-        case .stop:
-            stopCursor()
-        case .none:
-            break
-        }
-        return invalidations
     }
 
     var willDrawRect: CGRect {
@@ -152,12 +131,6 @@ extension CanvasText: CanvasObject {
 }
 
 private extension CanvasText {
-    enum CursorAction {
-        case none
-        case startOrRestart
-        case stop
-    }
-
     struct MemberData: Sendable {
         var didDrawRect: CGRect
         var layer: Layer<ID>
@@ -170,48 +143,6 @@ private extension CanvasText {
         var width: Double
         var runs: [TextRun]
         var filter: FilterLayer?
-        var cursor: TextCursor?
-        var selection: TextSelection?
-        var isCursorOn = true
-    }
-    
-    struct NonsendableData {
-        var cursorTimer: Timer?
-    }
-
-    func startCursor() {
-        memberData.withLock {
-            // Start on
-            $0.isCursorOn = true
-        }
-        
-        nonsendableData.withLock {
-            $0.cursorTimer?.invalidate()
-            $0.cursorTimer = nil
-
-            $0.cursorTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true, block: { [weak self] _ in
-                self?.blinkCursor()
-            })
-        }
-        invalidateCursor()
-    }
-
-    func stopCursor() {
-        nonsendableData.withLock {
-            $0.cursorTimer?.invalidate()
-            $0.cursorTimer = nil
-        }
-    }
-    
-    func blinkCursor() {
-        memberData.withLock {
-            $0.isCursorOn.toggle()
-        }
-        invalidateCursor()
-    }
-    
-    func invalidateCursor() {
-        invalidateRects([willDrawRect, didDrawRect])
     }
 
     func locked_textIndex(_ memberData: inout MemberData, at point: CGPoint) -> TextPosition? {
@@ -320,48 +251,6 @@ private extension CanvasText {
             }
         }
 
-        locked_drawSelectionAndCursor(bounds: bounds, memberData: &memberData, into: context)
-    }
-
-    func locked_drawSelectionAndCursor(
-        bounds: CGRect,
-        memberData: inout MemberData,
-        into context: CGContext
-    ) {
-        let hasSelection = memberData.selection != nil
-        let hasCursor = memberData.cursor != nil
-        guard hasSelection || hasCursor else {
-            return
-        }
-
-        // Flip to CoreText coordinates (origin bottom-left)
-        context.saveGState()
-        context.translateBy(x: 0, y: bounds.height)
-        context.scaleBy(x: 1, y: -1)
-
-        if let selection = memberData.selection {
-            let selectionRects = coreText.textRects(
-                for: selection.range,
-                fromRuns: memberData.runs,
-                autosize: memberData.autosize,
-                width: memberData.width
-            )
-            selection.color.setFill(in: context)
-            context.fill(selectionRects)
-        }
-
-        if let cursor = memberData.cursor, memberData.isCursorOn {
-            let caretRect = coreText.caretRect(
-                at: cursor.position,
-                fromRuns: memberData.runs,
-                autosize: memberData.autosize,
-                width: memberData.width
-            )
-            cursor.color.setFill(in: context)
-            context.fill([caretRect])
-        }
-
-        context.restoreGState()
     }
 
     func locked_structureBounds(_ memberData: inout MemberData) -> CGRect {
@@ -383,9 +272,8 @@ private extension CanvasText {
     func locked_update(
         _ memberData: inout MemberData,
         with layer: TextLayer<ID>
-    ) -> (Set<CanvasInvalidation>, CursorAction) {
+    ) -> Set<CanvasInvalidation> {
         var didChange = false
-        var cursorAction = CursorAction.none
 
         memberData.layer = .text(layer)
         if memberData.transform != layer.transform {
@@ -425,29 +313,11 @@ private extension CanvasText {
             memberData.filter = layer.filter
             didChange = true
         }
-        if memberData.cursor != layer.cursor {
-            let hadCursor = memberData.cursor != nil
-            memberData.cursor = layer.cursor
-            didChange = true
-
-            if layer.cursor != nil {
-                cursorAction = .startOrRestart
-            } else if hadCursor {
-                cursorAction = .stop
-            }
-        }
-        if memberData.selection != layer.selection {
-            memberData.selection = layer.selection
-            didChange = true
-        }
 
         if didChange {
-            return (
-                Set([.invalidateRect(memberData.didDrawRect), .invalidateRect(locked_willDrawRect(&memberData))]),
-                cursorAction
-            )
+            return Set([.invalidateRect(memberData.didDrawRect), .invalidateRect(locked_willDrawRect(&memberData))])
         } else {
-            return (Set(), cursorAction)
+            return Set()
         }
     }
 
