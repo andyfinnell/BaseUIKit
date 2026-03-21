@@ -120,9 +120,27 @@ extension CanvasText: CanvasObject {
         return BezierPath(path)
     }
 
-    func textIndex(at point: CGPoint) -> Int? {
-        memberData.withLock {
-            locked_textIndex(&$0, at: point)
+    func textIndex(at point: CGPoint) -> TextPosition? {
+        memberData.withLock { (memberData: inout MemberData) -> TextPosition? in
+            locked_textIndex(&memberData, at: point)
+        }
+    }
+
+    func textRects(for range: TextRange) -> [CGRect]? {
+        memberData.withLock { memberData in
+            locked_textRects(&memberData, for: range)
+        }
+    }
+
+    func navigateText(_ navigation: TextNavigation, from position: TextPosition) -> TextPosition? {
+        memberData.withLock { memberData in
+            coreText.navigateText(
+                navigation,
+                from: position,
+                fromRuns: memberData.runs,
+                autosize: memberData.autosize,
+                width: memberData.width
+            )
         }
     }
 }
@@ -190,7 +208,7 @@ private extension CanvasText {
         invalidateRects([willDrawRect, didDrawRect])
     }
 
-    func locked_textIndex(_ memberData: inout MemberData, at point: CGPoint) -> Int? {
+    func locked_textIndex(_ memberData: inout MemberData, at point: CGPoint) -> TextPosition? {
         guard let inverseTransform = memberData.transform.inverted() else {
             return nil
         }
@@ -208,6 +226,26 @@ private extension CanvasText {
             autosize: memberData.autosize,
             width: memberData.width
         )
+    }
+
+    func locked_textRects(_ memberData: inout MemberData, for range: TextRange) -> [CGRect] {
+        let bounds = locked_structureBounds(&memberData)
+        let coreTextRects = coreText.textRects(
+            for: range,
+            fromRuns: memberData.runs,
+            autosize: memberData.autosize,
+            width: memberData.width
+        )
+
+        // CoreText rects are in bottom-up coordinates; flip to top-down
+        return coreTextRects.map { rect in
+            CGRect(
+                x: rect.origin.x,
+                y: bounds.height - rect.origin.y - rect.height,
+                width: rect.width,
+                height: rect.height
+            )
+        }
     }
 
     func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
@@ -278,8 +316,8 @@ private extension CanvasText {
         context.scaleBy(x: 1, y: -1)
 
         if let selection = memberData.selection {
-            let selectionRects = coreText.selectionRects(
-                for: selection,
+            let selectionRects = coreText.textRects(
+                for: selection.range,
                 fromRuns: memberData.runs,
                 autosize: memberData.autosize,
                 width: memberData.width
@@ -444,21 +482,27 @@ private final class ProtectedCoreText: @unchecked Sendable {
         }
     }
 
-    func selectionRects(for selection: TextSelection, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> [CGRect] {
+    func textRects(for range: TextRange, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> [CGRect] {
         queue.sync {
-            queued_selectionRects(for: selection, fromRuns: runs, autosize: autosize, width: width)
+            queued_textRects(for: range, fromRuns: runs, autosize: autosize, width: width)
         }
     }
 
-    func caretRect(at position: Int, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGRect {
+    func caretRect(at position: TextPosition, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGRect {
         queue.sync {
             queued_caretRect(at: position, fromRuns: runs, autosize: autosize, width: width)
         }
     }
 
-    func closestStringIndex(at point: CGPoint, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> Int {
+    func closestStringIndex(at point: CGPoint, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> TextPosition {
         queue.sync {
             queued_closestStringIndex(at: point, fromRuns: runs, autosize: autosize, width: width)
+        }
+    }
+
+    func navigateText(_ navigation: TextNavigation, from position: TextPosition, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> TextPosition {
+        queue.sync {
+            queued_navigateText(navigation, from: position, fromRuns: runs, autosize: autosize, width: width)
         }
     }
 }
@@ -566,7 +610,7 @@ private extension ProtectedCoreText {
         )
     }
 
-    func queued_selectionRects(for selection: TextSelection, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> [CGRect] {
+    func queued_textRects(for range: TextRange, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> [CGRect] {
         let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
         let lines = frame.lines
         let lineOrigins = frame.lineOrigins
@@ -574,13 +618,16 @@ private extension ProtectedCoreText {
             return []
         }
 
+        let selStart = range.start.value
+        let selEnd = range.end.value
+
         var rects = [CGRect]()
         for (line, lineOrigin) in zip(lines, lineOrigins) {
             let lineRange = CTLineGetStringRange(line)
             let lineStart = lineRange.location
             let lineEnd = lineRange.location + lineRange.length
 
-            guard selection.end > lineStart && selection.start < lineEnd else {
+            guard selEnd > lineStart && selStart < lineEnd else {
                 continue
             }
 
@@ -589,8 +636,8 @@ private extension ProtectedCoreText {
             var leading: CGFloat = 0
             CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
 
-            let clampedStart = max(selection.start, lineStart)
-            let clampedEnd = min(selection.end, lineEnd)
+            let clampedStart = max(selStart, lineStart)
+            let clampedEnd = min(selEnd, lineEnd)
             let startX = CTLineGetOffsetForStringIndex(line, clampedStart, nil)
             let endX = CTLineGetOffsetForStringIndex(line, clampedEnd, nil)
 
@@ -606,11 +653,12 @@ private extension ProtectedCoreText {
         return rects
     }
 
-    func queued_caretRect(at position: Int, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGRect {
+    func queued_caretRect(at position: TextPosition, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGRect {
         let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
         let lines = frame.lines
         let lineOrigins = frame.lineOrigins
         let caretWidth: CGFloat = 1.0
+        let index = position.value
 
         guard !lines.isEmpty else {
             let bounds = queued_structureBounds(fromRuns: runs, autosize: autosize, width: width)
@@ -624,7 +672,7 @@ private extension ProtectedCoreText {
             let lineEnd = lineRange.location + lineRange.length
 
             // Position is within this line, or at the end of the last character
-            guard position >= lineStart && position <= lineEnd else {
+            guard index >= lineStart && index <= lineEnd else {
                 continue
             }
 
@@ -633,7 +681,7 @@ private extension ProtectedCoreText {
             var leading: CGFloat = 0
             CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
 
-            let xOffset = CTLineGetOffsetForStringIndex(line, position, nil)
+            let xOffset = CTLineGetOffsetForStringIndex(line, index, nil)
             return CGRect(
                 x: lineOrigin.x + xOffset - caretWidth / 2.0,
                 y: lineOrigin.y - descent,
@@ -649,7 +697,7 @@ private extension ProtectedCoreText {
         var descent: CGFloat = 0
         var leading: CGFloat = 0
         CTLineGetTypographicBounds(lastLine, &ascent, &descent, &leading)
-        let xOffset = CTLineGetOffsetForStringIndex(lastLine, position, nil)
+        let xOffset = CTLineGetOffsetForStringIndex(lastLine, index, nil)
         return CGRect(
             x: lastOrigin.x + xOffset - caretWidth / 2.0,
             y: lastOrigin.y - descent,
@@ -658,13 +706,13 @@ private extension ProtectedCoreText {
         )
     }
 
-    func queued_closestStringIndex(at point: CGPoint, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> Int {
+    func queued_closestStringIndex(at point: CGPoint, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> TextPosition {
         let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
         let lines = frame.lines
         let lineOrigins = frame.lineOrigins
 
         guard !lines.isEmpty else {
-            return 0
+            return TextPosition(0)
         }
 
         // Find the closest line by vertical distance to the point
@@ -695,7 +743,73 @@ private extension ProtectedCoreText {
         }
 
         let localX = point.x - closestLineOrigin.x
-        return CTLineGetStringIndexForPosition(closestLine, CGPoint(x: localX, y: 0))
+        return TextPosition(CTLineGetStringIndexForPosition(closestLine, CGPoint(x: localX, y: 0)))
+    }
+
+    func queued_navigateText(_ navigation: TextNavigation, from position: TextPosition, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> TextPosition {
+        let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
+        let lines = frame.lines
+        let lineOrigins = frame.lineOrigins
+        let index = position.value
+        let textLength = queued_attributedString(fromRuns: runs).length
+
+        guard !lines.isEmpty else {
+            return TextPosition(0)
+        }
+
+        switch navigation {
+        case .left:
+            return TextPosition(max(index - 1, 0))
+
+        case .right:
+            return TextPosition(min(index + 1, textLength))
+
+        case .beginningOfLine:
+            let lineIndex = queued_lineIndex(containing: index, in: lines)
+            let lineRange = CTLineGetStringRange(lines[lineIndex])
+            return TextPosition(lineRange.location)
+
+        case .endOfLine:
+            let lineIndex = queued_lineIndex(containing: index, in: lines)
+            let lineRange = CTLineGetStringRange(lines[lineIndex])
+            return TextPosition(lineRange.location + lineRange.length)
+
+        case .up:
+            let lineIndex = queued_lineIndex(containing: index, in: lines)
+            guard lineIndex > 0 else {
+                return TextPosition(0)
+            }
+            let xOffset = CTLineGetOffsetForStringIndex(lines[lineIndex], index, nil)
+            let localX = lineOrigins[lineIndex].x + xOffset - lineOrigins[lineIndex - 1].x
+            return TextPosition(CTLineGetStringIndexForPosition(lines[lineIndex - 1], CGPoint(x: localX, y: 0)))
+
+        case .down:
+            let lineIndex = queued_lineIndex(containing: index, in: lines)
+            guard lineIndex < lines.count - 1 else {
+                return TextPosition(textLength)
+            }
+            let xOffset = CTLineGetOffsetForStringIndex(lines[lineIndex], index, nil)
+            let localX = lineOrigins[lineIndex].x + xOffset - lineOrigins[lineIndex + 1].x
+            return TextPosition(CTLineGetStringIndexForPosition(lines[lineIndex + 1], CGPoint(x: localX, y: 0)))
+
+        case .begin:
+            return TextPosition(0)
+
+        case .end:
+            return TextPosition(textLength)
+        }
+    }
+
+    func queued_lineIndex(containing index: Int, in lines: [CTLine]) -> Int {
+        for (i, line) in lines.enumerated() {
+            let lineRange = CTLineGetStringRange(line)
+            let lineStart = lineRange.location
+            let lineEnd = lineRange.location + lineRange.length
+            if index >= lineStart && index <= lineEnd {
+                return i
+            }
+        }
+        return lines.count - 1
     }
 
     func queued_cgPath(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGPath {

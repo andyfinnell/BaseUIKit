@@ -171,9 +171,26 @@ public extension CanvasDatabase {
     /// Returns the character index in the text layer closest to the given point.
     /// The point is in content/object space (same coordinate space as `CanvasQuery.underLocation`).
     /// Returns nil if the ID does not refer to a text layer.
-    func textIndex(at point: Point, in layerID: ID) -> Int? {
+    func textIndex(at point: Point, in layerID: ID) -> TextPosition? {
         memberData.withLock {
             locked_textIndex(&$0, at: point, in: layerID)
+        }
+    }
+
+    /// Returns the visual bounds of the given text range within the text layer,
+    /// in content/object space. Returns nil if the ID does not refer to a text layer.
+    /// Multiple rects are returned when the range spans multiple lines.
+    func textRects(for range: TextRange, in layerID: ID) -> [Rect]? {
+        memberData.withLock {
+            locked_textRects(&$0, for: range, in: layerID)
+        }
+    }
+
+    /// Returns the text position after applying the given keyboard navigation action.
+    /// Returns nil if the ID does not refer to a text layer.
+    func navigateText(_ navigation: TextNavigation, from position: TextPosition, in layerID: ID) -> TextPosition? {
+        memberData.withLock {
+            locked_navigateText(&$0, navigation, from: position, in: layerID)
         }
     }
 }
@@ -218,11 +235,25 @@ private extension CanvasDatabase {
         var delegate = Delegate()
     }
     
-    func locked_textIndex(_ memberData: inout MemberData, at point: Point, in layerID: ID) -> Int? {
+    func locked_textIndex(_ memberData: inout MemberData, at point: Point, in layerID: ID) -> TextPosition? {
         guard let canvasText = memberData.objectById[layerID] else {
             return nil
         }
         return canvasText.textIndex(at: point.toCG)
+    }
+
+    func locked_textRects(_ memberData: inout MemberData, for range: TextRange, in layerID: ID) -> [Rect]? {
+        guard let canvasText = memberData.objectById[layerID] else {
+            return nil
+        }
+        return canvasText.textRects(for: range)?.map { Rect($0) }
+    }
+
+    func locked_navigateText(_ memberData: inout MemberData, _ navigation: TextNavigation, from position: TextPosition, in layerID: ID) -> TextPosition? {
+        guard let canvasText = memberData.objectById[layerID] else {
+            return nil
+        }
+        return canvasText.navigateText(navigation, from: position)
     }
 
     func locked_drawElements(_  memberData: inout MemberData, ids: Set<ID>, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {

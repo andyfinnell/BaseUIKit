@@ -20,5 +20,7 @@ protocol CanvasObject<ID>: AnyObject, Sendable {
     func intersects(_ rect: CGRect) -> Bool
     func contained(by rect: CGRect) -> Bool
     
-    func textIndex(at location: CGPoint) -> Int?
+    func textIndex(at location: CGPoint) -> TextPosition?
+    func textRects(for range: TextRange) -> [CGRect]?
+    func navigateText(_ navigation: TextNavigation, from position: TextPosition) -> TextPosition?
 }

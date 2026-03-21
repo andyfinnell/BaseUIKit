@@ -93,7 +93,15 @@ extension CanvasPath: CanvasObject{
         }
     }
     
-    func textIndex(at location: CGPoint) -> Int? {
+    func textIndex(at location: CGPoint) -> TextPosition? {
+        nil
+    }
+
+    func textRects(for range: TextRange) -> [CGRect]? {
+        nil
+    }
+
+    func navigateText(_ navigation: TextNavigation, from position: TextPosition) -> TextPosition? {
         nil
     }
 }
