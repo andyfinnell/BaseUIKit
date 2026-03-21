@@ -366,9 +366,14 @@ private extension CanvasViewImpl {
                 button: .left,
                 clickCount: primaryTouch.tapCount,
                 touches: Set(allTouches.map { makeTouch(from: $0) }),
-                canvas: eventCanvas()
+                canvas: eventCanvas(),
+                responderState: responderState()
             )
         )
+    }
+    
+    func responderState() -> ResponderState {
+        ResponderState(responder: self)
     }
     
     func updatePrimaryTouch() {

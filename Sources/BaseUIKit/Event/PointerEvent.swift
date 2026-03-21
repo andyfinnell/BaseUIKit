@@ -22,7 +22,8 @@ public struct PointerEvent: Hashable, Sendable {
     public let clickCount: Int
     public let touches: Set<Touch>
     public let canvas: EventCanvas
-
+    public let responderState: ResponderState
+    
     public init(
         state: State,
         location: Point,
@@ -32,7 +33,8 @@ public struct PointerEvent: Hashable, Sendable {
         button: Button,
         clickCount: Int = 1,
         touches: Set<Touch>,
-        canvas: EventCanvas
+        canvas: EventCanvas,
+        responderState: ResponderState
     ) {
         self.state = state
         self.location = location
@@ -43,5 +45,6 @@ public struct PointerEvent: Hashable, Sendable {
         self.clickCount = clickCount
         self.touches = touches
         self.canvas = canvas
+        self.responderState = responderState
     }
 }

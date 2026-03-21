@@ -93,10 +93,11 @@ extension CanvasText: CanvasObject {
     }
 
     var structurePath: BezierPath {
-        let path = memberData.withLock {
-            locked_cgPath(&$0)
+        memberData.withLock {
+            var path = BezierPath(locked_cgPath(&$0))
+            path.transform($0.transform)
+            return path
         }
-        return BezierPath(path)
     }
 
     func textIndex(at point: CGPoint) -> TextPosition? {
@@ -167,6 +168,7 @@ private extension CanvasText {
 
     func locked_textRects(_ memberData: inout MemberData, for range: TextRange) -> [CGRect] {
         let bounds = locked_structureBounds(&memberData)
+        let affineTransform = memberData.transform.toCG
         let coreTextRects = coreText.textRects(
             for: range,
             fromRuns: memberData.runs,
@@ -174,19 +176,21 @@ private extension CanvasText {
             width: memberData.width
         )
 
-        // CoreText rects are in bottom-up coordinates; flip to top-down
+        // CoreText rects are in bottom-up coordinates; flip to top-down,
+        // then transform from local space to content space
         return coreTextRects.map { rect in
             CGRect(
                 x: rect.origin.x,
                 y: bounds.height - rect.origin.y - rect.height,
                 width: rect.width,
                 height: rect.height
-            )
+            ).applying(affineTransform)
         }
     }
 
     func locked_caretRect(_ memberData: inout MemberData, at position: TextPosition) -> CGRect {
         let bounds = locked_structureBounds(&memberData)
+        let affineTransform = memberData.transform.toCG
         let coreTextRect = coreText.caretRect(
             at: position,
             fromRuns: memberData.runs,
@@ -194,13 +198,14 @@ private extension CanvasText {
             width: memberData.width
         )
 
-        // CoreText rect is in bottom-up coordinates; flip to top-down
+        // CoreText rect is in bottom-up coordinates; flip to top-down,
+        // then transform from local space to content space
         return CGRect(
             x: coreTextRect.origin.x,
             y: bounds.height - coreTextRect.origin.y - coreTextRect.height,
             width: coreTextRect.width,
             height: coreTextRect.height
-        )
+        ).applying(affineTransform)
     }
 
     func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {

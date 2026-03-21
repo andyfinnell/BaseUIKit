@@ -387,9 +387,14 @@ private extension CanvasViewImpl {
                 button: button,
                 clickCount: event.clickCount,
                 touches: Set(),
-                canvas: eventCanvas()
+                canvas: eventCanvas(),
+                responderState: responderState()
             )
         )
+    }
+    
+    func responderState() -> ResponderState {
+        ResponderState(window: window, responder: self)
     }
     
     func documentLocation(for event: NSEvent) -> Point {
