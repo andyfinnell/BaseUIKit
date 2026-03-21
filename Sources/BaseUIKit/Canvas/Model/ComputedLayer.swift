@@ -10,9 +10,11 @@ public struct LayerFactoryID: RawRepresentable, Hashable, Sendable {
 
 public struct LayerFactoryContext: Hashable, Sendable {
     public let structurePath: BezierPath
-    
-    public init(structurePath: BezierPath) {
+    public let typographicBounds: Rect?
+
+    public init(structurePath: BezierPath, typographicBounds: Rect? = nil) {
         self.structurePath = structurePath
+        self.typographicBounds = typographicBounds
     }
 }
 

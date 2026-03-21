@@ -92,7 +92,9 @@ extension CanvasPath: CanvasObject{
             $0.renderedBezier
         }
     }
-    
+
+    var typographicBounds: CGRect? { nil }
+
     func textIndex(at location: CGPoint) -> TextPosition? {
         nil
     }

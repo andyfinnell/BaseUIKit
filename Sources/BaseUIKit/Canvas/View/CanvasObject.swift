@@ -13,6 +13,7 @@ protocol CanvasObject<ID>: AnyObject, Sendable {
     
     var layer: Layer<ID> { get }
     var structurePath: BezierPath { get }
+    var typographicBounds: CGRect? { get }
     
     func updateLayer(_ layer: Layer<ID>) -> Set<CanvasInvalidation>
     

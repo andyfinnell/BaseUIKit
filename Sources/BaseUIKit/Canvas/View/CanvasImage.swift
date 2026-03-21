@@ -77,7 +77,9 @@ extension CanvasImage: CanvasObject {
         let globalBounds = memberData.withLock { locked_globalBounds(&$0) }
         return BezierPath(rect: Rect(globalBounds))
     }
-    
+
+    var typographicBounds: CGRect? { nil }
+
     func textIndex(at location: CGPoint) -> TextPosition? {
         nil
     }

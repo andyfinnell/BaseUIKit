@@ -72,24 +72,30 @@ extension CanvasText: CanvasObject {
     }
 
     func hitTest(_ location: CGPoint) -> Bool {
-        let path = memberData.withLock {
-            locked_cgPath(&$0)
+        memberData.withLock {
+            let bounds = locked_structureBounds(&$0)
+            let affineTransform = $0.transform.toCG
+            let contentBounds = bounds.applying(affineTransform)
+            return contentBounds.contains(location)
         }
-        return path.contains(location)
     }
 
     func intersects(_ rect: CGRect) -> Bool {
-        let path = memberData.withLock {
-            locked_cgPath(&$0)
+        memberData.withLock {
+            let bounds = locked_structureBounds(&$0)
+            let affineTransform = $0.transform.toCG
+            let contentBounds = bounds.applying(affineTransform)
+            return contentBounds.intersects(rect)
         }
-        return path.intersects(CGPath(rect: rect, transform: nil))
     }
 
     func contained(by rect: CGRect) -> Bool {
-        let path = memberData.withLock {
-            locked_cgPath(&$0)
+        memberData.withLock {
+            let bounds = locked_structureBounds(&$0)
+            let affineTransform = $0.transform.toCG
+            let contentBounds = bounds.applying(affineTransform)
+            return rect.contains(contentBounds)
         }
-        return rect.contains(path.boundingBoxOfPath)
     }
 
     var structurePath: BezierPath {
@@ -97,6 +103,13 @@ extension CanvasText: CanvasObject {
             var path = BezierPath(locked_cgPath(&$0))
             path.transform($0.transform)
             return path
+        }
+    }
+
+    var typographicBounds: CGRect? {
+        memberData.withLock {
+            let localBounds = locked_structureBounds(&$0)
+            return localBounds.applying($0.transform.toCG)
         }
     }
 
@@ -517,8 +530,8 @@ private extension ProtectedCoreText {
             return []
         }
 
-        let selStart = range.start.value
-        let selEnd = range.end.value
+        let selStart = range.start.utf16Offset
+        let selEnd = range.end.utf16Offset
 
         var rects = [CGRect]()
         for (line, lineOrigin) in zip(lines, lineOrigins) {
@@ -557,7 +570,7 @@ private extension ProtectedCoreText {
         let lines = frame.lines
         let lineOrigins = frame.lineOrigins
         let caretWidth: CGFloat = 1.0
-        let index = position.value
+        let index = position.utf16Offset
 
         guard !lines.isEmpty else {
             let bounds = queued_structureBounds(fromRuns: runs, autosize: autosize, width: width)
@@ -611,7 +624,7 @@ private extension ProtectedCoreText {
         let lineOrigins = frame.lineOrigins
 
         guard !lines.isEmpty else {
-            return TextPosition(0)
+            return TextPosition(utf16Offset:0)
         }
 
         // Find the closest line by vertical distance to the point
@@ -642,60 +655,103 @@ private extension ProtectedCoreText {
         }
 
         let localX = point.x - closestLineOrigin.x
-        return TextPosition(CTLineGetStringIndexForPosition(closestLine, CGPoint(x: localX, y: 0)))
+        return TextPosition(utf16Offset:CTLineGetStringIndexForPosition(closestLine, CGPoint(x: localX, y: 0)))
     }
 
     func queued_navigateText(_ navigation: TextNavigation, from position: TextPosition, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> TextPosition {
         let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
         let lines = frame.lines
         let lineOrigins = frame.lineOrigins
-        let index = position.value
+        let index = position.utf16Offset
         let textLength = queued_attributedString(fromRuns: runs).length
 
         guard !lines.isEmpty else {
-            return TextPosition(0)
+            return TextPosition(utf16Offset:0)
         }
 
         switch navigation {
         case .left:
-            return TextPosition(max(index - 1, 0))
+            return TextPosition(utf16Offset:max(index - 1, 0))
 
         case .right:
-            return TextPosition(min(index + 1, textLength))
+            return TextPosition(utf16Offset:min(index + 1, textLength))
+
+        case .wordLeft:
+            guard index > 0 else { return TextPosition(utf16Offset:0) }
+            let string = queued_attributedString(fromRuns: runs).string as NSString
+            var wordStart = index
+            string.enumerateSubstrings(
+                in: NSRange(location: 0, length: index),
+                options: [.byWords, .reverse, .substringNotRequired]
+            ) { _, range, _, stop in
+                wordStart = range.location
+                stop.pointee = true
+            }
+            return TextPosition(utf16Offset:wordStart)
+
+        case .wordRight:
+            guard index < textLength else { return TextPosition(utf16Offset:textLength) }
+            let string = queued_attributedString(fromRuns: runs).string as NSString
+            var wordEnd = textLength
+            string.enumerateSubstrings(
+                in: NSRange(location: index, length: textLength - index),
+                options: [.byWords, .substringNotRequired]
+            ) { _, range, _, stop in
+                let end = range.location + range.length
+                if end > index {
+                    wordEnd = end
+                    stop.pointee = true
+                }
+            }
+            return TextPosition(utf16Offset:wordEnd)
+
+        case .beginningOfParagraph:
+            guard textLength > 0 else { return TextPosition(utf16Offset:0) }
+            let string = queued_attributedString(fromRuns: runs).string as NSString
+            let clampedIndex = min(index, textLength - 1)
+            let nsRange = string.paragraphRange(for: NSRange(location: clampedIndex, length: 0))
+            return TextPosition(utf16Offset:nsRange.location)
+
+        case .endOfParagraph:
+            guard textLength > 0 else { return TextPosition(utf16Offset:0) }
+            let string = queued_attributedString(fromRuns: runs).string as NSString
+            let clampedIndex = min(index, textLength - 1)
+            let nsRange = string.paragraphRange(for: NSRange(location: clampedIndex, length: 0))
+            return TextPosition(utf16Offset:nsRange.location + nsRange.length)
 
         case .beginningOfLine:
             let lineIndex = queued_lineIndex(containing: index, in: lines)
             let lineRange = CTLineGetStringRange(lines[lineIndex])
-            return TextPosition(lineRange.location)
+            return TextPosition(utf16Offset:lineRange.location)
 
         case .endOfLine:
             let lineIndex = queued_lineIndex(containing: index, in: lines)
             let lineRange = CTLineGetStringRange(lines[lineIndex])
-            return TextPosition(lineRange.location + lineRange.length)
+            return TextPosition(utf16Offset:lineRange.location + lineRange.length)
 
         case .up:
             let lineIndex = queued_lineIndex(containing: index, in: lines)
             guard lineIndex > 0 else {
-                return TextPosition(0)
+                return TextPosition(utf16Offset:0)
             }
             let xOffset = CTLineGetOffsetForStringIndex(lines[lineIndex], index, nil)
             let localX = lineOrigins[lineIndex].x + xOffset - lineOrigins[lineIndex - 1].x
-            return TextPosition(CTLineGetStringIndexForPosition(lines[lineIndex - 1], CGPoint(x: localX, y: 0)))
+            return TextPosition(utf16Offset:CTLineGetStringIndexForPosition(lines[lineIndex - 1], CGPoint(x: localX, y: 0)))
 
         case .down:
             let lineIndex = queued_lineIndex(containing: index, in: lines)
             guard lineIndex < lines.count - 1 else {
-                return TextPosition(textLength)
+                return TextPosition(utf16Offset:textLength)
             }
             let xOffset = CTLineGetOffsetForStringIndex(lines[lineIndex], index, nil)
             let localX = lineOrigins[lineIndex].x + xOffset - lineOrigins[lineIndex + 1].x
-            return TextPosition(CTLineGetStringIndexForPosition(lines[lineIndex + 1], CGPoint(x: localX, y: 0)))
+            return TextPosition(utf16Offset:CTLineGetStringIndexForPosition(lines[lineIndex + 1], CGPoint(x: localX, y: 0)))
 
         case .begin:
-            return TextPosition(0)
+            return TextPosition(utf16Offset:0)
 
         case .end:
-            return TextPosition(textLength)
+            return TextPosition(utf16Offset:textLength)
         }
     }
 

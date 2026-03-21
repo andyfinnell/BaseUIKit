@@ -658,7 +658,7 @@ private extension CanvasDatabase {
                   let basedOn = memberData.objectById[computed.basedOn] {
             let newLayers = computed.factory(
                 basedOn.layer,
-                withContext: LayerFactoryContext(structurePath: basedOn.structurePath)
+                withContext: LayerFactoryContext(structurePath: basedOn.structurePath, typographicBounds: basedOn.typographicBounds.map { Rect($0) })
             )
             locked_upsertComputedLayers(&memberData, newLayers, for: computed, at: index, invalidates: &invalidates)
             
@@ -697,7 +697,7 @@ private extension CanvasDatabase {
         }
         let newLayers = computedLayer.factory(
             basedOn.layer,
-            withContext: LayerFactoryContext(structurePath: basedOn.structurePath)
+            withContext: LayerFactoryContext(structurePath: basedOn.structurePath, typographicBounds: basedOn.typographicBounds.map { Rect($0) })
         )
         
         locked_upsertComputedLayers(&memberData, newLayers, for: computedLayer, at: nil, invalidates: &invalidates)
@@ -801,7 +801,7 @@ private extension CanvasDatabase {
 
         let computedLayers = computed.factory(
             basedLayer,
-            withContext: LayerFactoryContext(structurePath: basedObject.structurePath)
+            withContext: LayerFactoryContext(structurePath: basedObject.structurePath, typographicBounds: basedObject.typographicBounds.map { Rect($0) })
         )
         memberData.generatedLayersByComputedID[computed.id] = Generated(
             basedOnLayerID: basedLayer.id,
