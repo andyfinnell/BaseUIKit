@@ -402,7 +402,7 @@ private extension CanvasText {
                 switch attribute {
                 case let .fontName(name): fontName = name
                 case let .fontSize(size): fontSize = size
-                case .textAlign: break
+                case .textAlign, .letterSpacing, .wordSpacing: break
                 }
             }
         }
@@ -958,13 +958,31 @@ private extension ProtectedCoreText {
     }
 
     func queued_attributedString(from run: TextRun) -> NSAttributedString {
-        NSAttributedString(string: run.text, attributes: queued_attributes(from: run.attributes))
+        let baseAttributes = queued_attributes(from: run.attributes)
+        let wordSpacing = run.attributes.lazy.compactMap { attr -> Double? in
+            if case let .wordSpacing(value) = attr { return value }
+            return nil
+        }.first
+
+        guard let wordSpacing, wordSpacing != 0 else {
+            return NSAttributedString(string: run.text, attributes: baseAttributes)
+        }
+
+        let result = NSMutableAttributedString(string: run.text, attributes: baseAttributes)
+        let nsString = run.text as NSString
+        for i in 0..<nsString.length where nsString.character(at: i) == 0x20 {
+            let baseKern = (baseAttributes[.kern] as? Double) ?? 0
+            result.addAttribute(.kern, value: baseKern + wordSpacing, range: NSRange(location: i, length: 1))
+        }
+        return result
     }
 
     func queued_attributes(from attributes: [TextRun.Attribute]) -> [NSAttributedString.Key: Any] {
         var fontName = "Times"
         var fontSize: CGFloat = 16.0
         var textAlignment: NSTextAlignment?
+        var letterSpacing: Double?
+        var wordSpacing: Double?
 
         for attribute in attributes {
             switch attribute {
@@ -974,6 +992,10 @@ private extension ProtectedCoreText {
                 fontSize = size
             case let .textAlign(align):
                 textAlignment = align.toNative
+            case let .letterSpacing(value):
+                letterSpacing = value
+            case let .wordSpacing(value):
+                wordSpacing = value
             }
         }
 
@@ -984,6 +1006,10 @@ private extension ProtectedCoreText {
             let paragraphStyle = NSMutableParagraphStyle()
             paragraphStyle.alignment = textAlignment
             attributeDictionary[.paragraphStyle] = paragraphStyle
+        }
+
+        if let letterSpacing {
+            attributeDictionary[.kern] = letterSpacing
         }
 
         return attributeDictionary
@@ -997,6 +1023,9 @@ private extension ProtectedCoreText {
         }
         if let paragraphStyle = attributeDictionary[.paragraphStyle] as? NSParagraphStyle {
             attributes.append(.textAlign(TextAlignment(native: paragraphStyle.alignment)))
+        }
+        if let kern = attributeDictionary[.kern] as? Double, kern != 0 {
+            attributes.append(.letterSpacing(kern))
         }
         return attributes
     }
