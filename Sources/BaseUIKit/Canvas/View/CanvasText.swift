@@ -376,8 +376,8 @@ private extension CanvasText {
     }
 
     static func computeBaselineOffset(_ baseline: TextBaseline, runs: [TextRun]) -> Double {
-        var fontName = "Helvetica"
-        var fontSize: CGFloat = 12.0
+        var fontName = "Times"
+        var fontSize: CGFloat = 16.0
         if let firstRun = runs.first {
             for attribute in firstRun.attributes {
                 switch attribute {
@@ -478,7 +478,7 @@ private final class ProtectedCoreText: @unchecked Sendable {
 private extension ProtectedCoreText {
     func queued_structureBounds(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGRect {
         if runs.isEmpty  {
-            let font = CTFontCreateWithName("Helvetica" as CFString, 12, nil)
+            let font = CTFontCreateWithName("Times" as CFString, 16, nil)
             let lineHeight = ceil(CTFontGetAscent(font)) + ceil(CTFontGetDescent(font))
             let width = autosize ? 15.0 : width
             return CGRect(x: 0, y: 0, width: width, height: lineHeight)
@@ -893,8 +893,8 @@ private extension ProtectedCoreText {
     }
 
     func queued_attributes(from attributes: [TextRun.Attribute]) -> [NSAttributedString.Key: Any] {
-        var fontName = "Helvetica"
-        var fontSize: CGFloat = 12.0
+        var fontName = "Times"
+        var fontSize: CGFloat = 16.0
         var textAlignment: NSTextAlignment?
 
         for attribute in attributes {

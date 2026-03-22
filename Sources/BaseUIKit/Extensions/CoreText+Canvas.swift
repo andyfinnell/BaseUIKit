@@ -49,7 +49,7 @@ public extension CTRun {
     }
     
     var font: NativeFont {
-        (attributes[.font] as? NativeFont) ?? NativeFont.systemFont(ofSize: 12)
+        (attributes[.font] as? NativeFont) ?? NativeFont.systemFont(ofSize: 16)
     }
     
     var glyphs: [CGGlyph] {
