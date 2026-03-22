@@ -168,14 +168,19 @@ private extension CanvasText {
         guard let inverseTransform = memberData.transform.inverted() else {
             return nil
         }
-        
+
         // Transform from content space into the text's local space
         let localPoint = inverseTransform.applying(to: Point(point)).toCG
-        
-        // Flip from top-down to CoreText bottom-up coordinates
+
+        // Only return an index if the click is within the text's typographic bounds
         let bounds = locked_structureBounds(&memberData)
+        guard bounds.contains(localPoint) else {
+            return nil
+        }
+
+        // Flip from top-down to CoreText bottom-up coordinates
         let coreTextPoint = CGPoint(x: localPoint.x, y: bounds.height - localPoint.y)
-        
+
         return coreText.closestStringIndex(
             at: coreTextPoint,
             fromRuns: memberData.runs,
