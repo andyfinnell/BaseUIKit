@@ -5,6 +5,7 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
     private let value: SmartBind<Parser.Value, ExtraEmpty>
     private let range: ClosedRange<Double>
     private let step: Double?
+    private let defaultSliderValue: Double?
     private let onBeginEditing: Callback<Void>
     private let onEndEditing: Callback<Void>
     @State private var text: String = ""
@@ -12,13 +13,14 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
     @State private var isShowing = false
     @State private var isTextEditing = false
     @FocusState private var isFocused: Bool
-    
+
     public init(
         _ title: String,
         value: Parser.Value,
         onChange: @escaping (Parser.Value) -> Void,
         in range: ClosedRange<Double>,
         step: Double? = nil,
+        defaultSliderValue: Double? = nil,
         errorMessage: String? = nil,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
@@ -27,6 +29,7 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
         self.value = SmartBind(value, onChange)
         self.range = range
         self.step = step
+        self.defaultSliderValue = defaultSliderValue
         self.onBeginEditing = Callback(onBeginEditing)
         self.onEndEditing = Callback(onEndEditing)
     }
@@ -36,11 +39,12 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
         value: Binding<Parser.Value>,
         in range: ClosedRange<Double>,
         step: Double? = nil,
+        defaultSliderValue: Double? = nil,
         errorMessage: String? = nil,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
-        self.init(title, value: value.wrappedValue, onChange: { value.wrappedValue = $0 }, in: range, step: step, errorMessage: errorMessage, onBeginEditing: onBeginEditing, onEndEditing: onEndEditing)
+        self.init(title, value: value.wrappedValue, onChange: { value.wrappedValue = $0 }, in: range, step: step, defaultSliderValue: defaultSliderValue, errorMessage: errorMessage, onBeginEditing: onBeginEditing, onEndEditing: onEndEditing)
     }
 
     init(
@@ -48,6 +52,7 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
         value: SmartBind<Parser.Value, ExtraEmpty>,
         in range: ClosedRange<Double>,
         step: Double? = nil,
+        defaultSliderValue: Double? = nil,
         errorMessage: String? = nil,
         onBeginEditing: Callback<Void>,
         onEndEditing: Callback<Void>
@@ -56,6 +61,7 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
         self.value = value
         self.range = range
         self.step = step
+        self.defaultSliderValue = defaultSliderValue
         self.onBeginEditing = onBeginEditing
         self.onEndEditing = onEndEditing
     }
@@ -67,6 +73,7 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
         onChange: @escaping (Parser.Value) -> Void,
         in range: ClosedRange<Double>,
         step: Double? = nil,
+        defaultSliderValue: Double? = nil,
         errorMessage: String? = nil,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
@@ -77,6 +84,7 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
             onChange: onChange,
             in: range,
             step: step,
+            defaultSliderValue: defaultSliderValue,
             errorMessage: errorMessage,
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing
@@ -119,7 +127,7 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
             }
             .popover(isPresented: $isShowing) {
                 PopOverSlider(
-                    number: Parser.doubleValue(value.value),
+                    number: resolvedSliderValue,
                     text: $text,
                     range: range,
                     step: step,
@@ -174,6 +182,14 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
 }
 
 private extension PopOverSliderField {
+    var resolvedSliderValue: Double {
+        let parsed = Parser.doubleValue(value.value)
+        if parsed.isFinite {
+            return parsed
+        }
+        return defaultSliderValue ?? range.lowerBound
+    }
+
     func beginTextEditingIfNecessary() {
         guard isFocused && !isTextEditing else {
             return
