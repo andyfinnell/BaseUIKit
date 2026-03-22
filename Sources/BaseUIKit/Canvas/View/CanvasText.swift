@@ -31,11 +31,12 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
 
     init(layer: TextLayer<ID>) {
         self.id = layer.id
+        let effectiveTransform = Self.applyBaselineOffset(layer.baseline, to: layer.transform, runs: layer.runs)
         self.memberData = Mutex(
             MemberData(
                 didDrawRect: .zero,
                 layer: .text(layer),
-                transform: layer.transform,
+                transform: effectiveTransform,
                 opacity: layer.opacity,
                 blendMode: layer.blendMode,
                 isVisible: layer.isVisible,
@@ -43,6 +44,7 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
                 autosize: layer.autosize,
                 width: layer.width,
                 runs: layer.runs,
+                baseline: layer.baseline,
                 filter: layer.filter
             )
         )
@@ -156,6 +158,7 @@ private extension CanvasText {
         var autosize: Bool
         var width: Double
         var runs: [TextRun]
+        var baseline: TextBaseline
         var filter: FilterLayer?
     }
 
@@ -294,8 +297,20 @@ private extension CanvasText {
         var didChange = false
 
         memberData.layer = .text(layer)
-        if memberData.transform != layer.transform {
-            memberData.transform = layer.transform
+
+        // Recompute effective transform when transform, baseline, or runs change
+        let runsChanged = memberData.runs != layer.runs
+        if memberData.baseline != layer.baseline || runsChanged {
+            memberData.baseline = layer.baseline
+        }
+        if runsChanged {
+            memberData.runs = layer.runs
+            coreText.clear()
+            didChange = true
+        }
+        let effectiveTransform = Self.applyBaselineOffset(layer.baseline, to: layer.transform, runs: layer.runs)
+        if memberData.transform != effectiveTransform {
+            memberData.transform = effectiveTransform
             didChange = true
         }
         if memberData.opacity != layer.opacity {
@@ -312,11 +327,6 @@ private extension CanvasText {
         }
         if memberData.decorations != layer.decorations {
             memberData.decorations = layer.decorations
-            didChange = true
-        }
-        if memberData.runs != layer.runs {
-            memberData.runs = layer.runs
-            coreText.clear()
             didChange = true
         }
         if memberData.autosize != layer.autosize {
@@ -357,6 +367,52 @@ private extension CanvasText {
         context.scaleBy(x: 1, y: -1)
         context.addPath(path)
         context.restoreGState()
+    }
+
+    static func applyBaselineOffset(_ baseline: TextBaseline, to transform: Transform, runs: [TextRun]) -> Transform {
+        let offset = computeBaselineOffset(baseline, runs: runs)
+        guard offset != 0 else { return transform }
+        return transform.concatenating(Transform(translateX: 0, y: offset))
+    }
+
+    static func computeBaselineOffset(_ baseline: TextBaseline, runs: [TextRun]) -> Double {
+        var fontName = "Helvetica"
+        var fontSize: CGFloat = 12.0
+        if let firstRun = runs.first {
+            for attribute in firstRun.attributes {
+                switch attribute {
+                case let .fontName(name): fontName = name
+                case let .fontSize(size): fontSize = size
+                case .textAlign: break
+                }
+            }
+        }
+
+        let ctFont = CTFontCreateWithName(fontName as CFString, fontSize, nil)
+        let ascent = Double(CTFontGetAscent(ctFont))
+        let descent = Double(CTFontGetDescent(ctFont))
+        let xHeight = Double(CTFontGetXHeight(ctFont))
+        let capHeight = Double(CTFontGetCapHeight(ctFont))
+
+        // The offset shifts from the SVG y-coordinate (the specified baseline position)
+        // to the top of the text frame. CoreText renders with the frame origin at the
+        // top-left, so we translate y upward by the distance from baseline to frame top.
+        return switch baseline {
+        case .alphabetic:
+            -ascent
+        case .top:
+            0
+        case .bottom:
+            -(ascent + descent)
+        case .middle:
+            -ascent + xHeight / 2.0
+        case .central:
+            -(ascent + descent) / 2.0
+        case .hanging:
+            -(ascent - capHeight)
+        case .mathematical:
+            -ascent + capHeight / 2.0
+        }
     }
 }
 

@@ -10,6 +10,7 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
     public let runs: [TextRun]
     public let autosize: Bool
     public let width: Double
+    public let baseline: TextBaseline
     public let filter: FilterLayer?
 
     public init(
@@ -22,6 +23,7 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         runs: [TextRun],
         autosize: Bool,
         width: Double,
+        baseline: TextBaseline = .alphabetic,
         filter: FilterLayer? = nil
     ) {
         self.id = id
@@ -33,6 +35,7 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         self.runs = runs
         self.autosize = autosize
         self.width = width
+        self.baseline = baseline
         self.filter = filter
     }
 }
