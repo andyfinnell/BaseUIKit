@@ -45,6 +45,7 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
                 width: layer.width,
                 runs: layer.runs,
                 baseline: layer.baseline,
+                textDecorationLines: layer.textDecorationLines,
                 filter: layer.filter
             )
         )
@@ -159,6 +160,7 @@ private extension CanvasText {
         var width: Double
         var runs: [TextRun]
         var baseline: TextBaseline
+        var textDecorationLines: TextDecorationLine
         var filter: FilterLayer?
     }
 
@@ -270,6 +272,19 @@ private extension CanvasText {
                 setPath(path, with: bounds, in: context)
                 decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
             }
+
+            if !memberData.textDecorationLines.isEmpty {
+                let linePath = coreText.textDecorationPath(
+                    memberData.textDecorationLines,
+                    fromRuns: memberData.runs,
+                    autosize: memberData.autosize,
+                    width: memberData.width
+                )
+                for decoration in memberData.decorations {
+                    setPath(linePath.cgPath, with: bounds, in: context)
+                    decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
+                }
+            }
         }
 
     }
@@ -335,6 +350,10 @@ private extension CanvasText {
         }
         if memberData.width != layer.width {
             memberData.width = layer.width
+            didChange = true
+        }
+        if memberData.textDecorationLines != layer.textDecorationLines {
+            memberData.textDecorationLines = layer.textDecorationLines
             didChange = true
         }
         if memberData.filter != layer.filter {
@@ -471,6 +490,12 @@ private final class ProtectedCoreText: @unchecked Sendable {
     func navigateText(_ navigation: TextNavigation, from position: TextPosition, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> TextPosition {
         queue.sync {
             queued_navigateText(navigation, from: position, fromRuns: runs, autosize: autosize, width: width)
+        }
+    }
+
+    func textDecorationPath(_ lines: TextDecorationLine, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> BezierPath {
+        queue.sync {
+            BezierPath(queued_textDecorationPath(lines, fromRuns: runs, autosize: autosize, width: width))
         }
     }
 }
@@ -868,6 +893,50 @@ private extension ProtectedCoreText {
         cgPathCache = finalPath
 
         return finalPath
+    }
+
+    func queued_textDecorationPath(_ lines: TextDecorationLine, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGPath {
+        let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
+        let ctLines = frame.lines
+        let lineOrigins = frame.lineOrigins
+        let path = CGMutablePath()
+
+        guard !ctLines.isEmpty else { return path }
+
+        let frameOrigin = CGPoint.zero
+        for (line, lineOrigin) in zip(ctLines, lineOrigins) {
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            var leading: CGFloat = 0
+            let lineWidth = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+
+            // Get font metrics from the first run
+            guard let firstRun = line.runs.first else { continue }
+            let font = firstRun.font as CTFont
+            let underlinePosition = CTFontGetUnderlinePosition(font)
+            let underlineThickness = max(CTFontGetUnderlineThickness(font), 1.0)
+            let xHeight = CTFontGetXHeight(font)
+
+            let originX = frameOrigin.x + lineOrigin.x
+            let baselineY = frameOrigin.y + lineOrigin.y
+
+            if lines.contains(.underline) {
+                let y = baselineY + underlinePosition - underlineThickness / 2.0
+                path.addRect(CGRect(x: originX, y: y, width: lineWidth, height: underlineThickness))
+            }
+
+            if lines.contains(.overline) {
+                let y = baselineY + ascent - underlineThickness / 2.0
+                path.addRect(CGRect(x: originX, y: y, width: lineWidth, height: underlineThickness))
+            }
+
+            if lines.contains(.lineThrough) {
+                let y = baselineY + xHeight / 2.0 - underlineThickness / 2.0
+                path.addRect(CGRect(x: originX, y: y, width: lineWidth, height: underlineThickness))
+            }
+        }
+
+        return path
     }
 
     func queued_attributedString(fromRuns runs: [TextRun]) -> NSAttributedString {
