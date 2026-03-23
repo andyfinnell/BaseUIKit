@@ -18,6 +18,11 @@ struct RenderedTextRun: Hashable, Sendable {
     let bounds: CGRect
 }
 
+struct RunPathEntry {
+    let path: BezierPath
+    let runIndex: Int
+}
+
 final class CanvasText<ID: Hashable & Sendable>: Sendable {
     let id: ID
     private let memberData: Mutex<MemberData>
@@ -271,27 +276,65 @@ private extension CanvasText {
     func locked_drawSelf(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         let bounds = locked_structureBounds(&memberData)
 
-        if !memberData.runs.isEmpty {
-            let path = locked_cgPath(&memberData)
+        guard !memberData.runs.isEmpty else { return }
+
+        if memberData.runs.contains(where: \.needsPerRunRendering) {
+            locked_drawPerRun(&memberData, bounds: bounds, into: context, atScale: scale, renderingCache: renderingCache)
+        } else {
+            locked_drawUniform(&memberData, bounds: bounds, into: context, atScale: scale, renderingCache: renderingCache)
+        }
+    }
+
+    func locked_drawUniform(_ memberData: inout MemberData, bounds: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
+        let path = locked_cgPath(&memberData)
+        for decoration in memberData.decorations {
+            setPath(path, with: bounds, in: context)
+            decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
+        }
+
+        if !memberData.textDecorationLines.isEmpty {
+            let linePath = coreText.textDecorationPath(
+                memberData.textDecorationLines,
+                fromRuns: memberData.runs,
+                autosize: memberData.autosize,
+                width: memberData.width
+            )
             for decoration in memberData.decorations {
-                setPath(path, with: bounds, in: context)
+                setPath(linePath.cgPath, with: bounds, in: context)
                 decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
             }
+        }
+    }
 
-            if !memberData.textDecorationLines.isEmpty {
-                let linePath = coreText.textDecorationPath(
-                    memberData.textDecorationLines,
-                    fromRuns: memberData.runs,
-                    autosize: memberData.autosize,
-                    width: memberData.width
-                )
-                for decoration in memberData.decorations {
-                    setPath(linePath.cgPath, with: bounds, in: context)
-                    decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
-                }
+    func locked_drawPerRun(_ memberData: inout MemberData, bounds: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
+        let runPaths = coreText.perRunPaths(
+            fromRuns: memberData.runs,
+            autosize: memberData.autosize,
+            width: memberData.width
+        )
+
+        for runPath in runPaths {
+            let decorations = memberData.runs[runPath.runIndex].decorations ?? memberData.decorations
+            for decoration in decorations {
+                setPath(runPath.path.cgPath, with: bounds, in: context)
+                decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
             }
         }
 
+        // Draw text decoration lines per run
+        let perRunDecorationPaths = coreText.perRunTextDecorationPaths(
+            fromRuns: memberData.runs,
+            defaultLines: memberData.textDecorationLines,
+            autosize: memberData.autosize,
+            width: memberData.width
+        )
+        for runPath in perRunDecorationPaths {
+            let decorations = memberData.runs[runPath.runIndex].decorations ?? memberData.decorations
+            for decoration in decorations {
+                setPath(runPath.path.cgPath, with: bounds, in: context)
+                decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
+            }
+        }
     }
 
     func locked_structureBounds(_ memberData: inout MemberData) -> CGRect {
@@ -501,6 +544,18 @@ private final class ProtectedCoreText: @unchecked Sendable {
     func textDecorationPath(_ lines: TextDecorationLine, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> BezierPath {
         queue.sync {
             BezierPath(queued_textDecorationPath(lines, fromRuns: runs, autosize: autosize, width: width))
+        }
+    }
+
+    func perRunPaths(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> [RunPathEntry] {
+        queue.sync {
+            queued_perRunPaths(fromRuns: runs, autosize: autosize, width: width)
+        }
+    }
+
+    func perRunTextDecorationPaths(fromRuns runs: [TextRun], defaultLines: TextDecorationLine, autosize: Bool, width: CGFloat) -> [RunPathEntry] {
+        queue.sync {
+            queued_perRunTextDecorationPaths(fromRuns: runs, defaultLines: defaultLines, autosize: autosize, width: width)
         }
     }
 }
@@ -942,6 +997,156 @@ private extension ProtectedCoreText {
         }
 
         return path
+    }
+
+    // MARK: - Per-Run Paths
+
+    /// Computes UTF-16 ranges for each TextRun within the combined attributed string.
+    func queued_runRanges(for runs: [TextRun]) -> [(start: Int, end: Int)] {
+        var ranges = [(start: Int, end: Int)]()
+        var offset = 0
+        for run in runs {
+            let length = (run.text as NSString).length
+            ranges.append((start: offset, end: offset + length))
+            offset += length
+        }
+        return ranges
+    }
+
+    /// Maps a CTRun's string range to the source TextRun index.
+    func queued_textRunIndex(for ctRunRange: CFRange, in runRanges: [(start: Int, end: Int)]) -> Int {
+        let rangeStart = ctRunRange.location
+        for (index, range) in runRanges.enumerated() {
+            if rangeStart >= range.start && rangeStart < range.end {
+                return index
+            }
+        }
+        return 0
+    }
+
+    /// Generates per-TextRun glyph paths with dx/dy offsets applied.
+    func queued_perRunPaths(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> [RunPathEntry] {
+        let bounds = queued_framesetterBounds(fromRuns: runs, autosize: autosize, width: width)
+        let boundsPath = CGMutablePath(rect: bounds, transform: nil)
+        let frame = CTFramesetterCreateFrame(
+            queued_framesetter(fromRuns: runs),
+            CFRange(location: 0, length: 0),
+            boundsPath,
+            nil
+        )
+
+        let lines = frame.lines
+        guard !lines.isEmpty else { return [] }
+
+        let runRanges = queued_runRanges(for: runs)
+        let frameOrigin = CGPoint.zero
+
+        // Track accumulated dx/dy offsets (SVG dx/dy is cumulative)
+        var accDx: CGFloat = 0
+        var accDy: CGFloat = 0
+        var lastSeenRunIndex = -1
+        var pathsByRun = [Int: CGMutablePath]()
+
+        for (line, lineOrigin) in zip(lines, frame.lineOrigins) {
+            for ctRun in line.runs {
+                let runIndex = queued_textRunIndex(for: ctRun.range, in: runRanges)
+
+                // Accumulate dx/dy when we enter a new TextRun
+                if runIndex != lastSeenRunIndex {
+                    for i in (lastSeenRunIndex + 1)...runIndex where i >= 0 && i < runs.count {
+                        accDx += runs[i].dx
+                        accDy += runs[i].dy
+                    }
+                    lastSeenRunIndex = runIndex
+                }
+
+                let path = pathsByRun[runIndex] ?? CGMutablePath()
+                let coreFont = ctRun.font as CTFont
+                for (glyph, position) in zip(ctRun.glyphs, ctRun.positions) {
+                    let finalPosition = CGPoint(
+                        x: frameOrigin.x + lineOrigin.x + position.x + accDx,
+                        y: frameOrigin.y + lineOrigin.y + position.y + accDy
+                    )
+                    var glyphTransform = CGAffineTransform(
+                        translationX: finalPosition.x,
+                        y: finalPosition.y
+                    )
+                    guard let glyphPath = CTFontCreatePathForGlyph(coreFont, glyph, &glyphTransform) else {
+                        continue
+                    }
+                    path.addPath(glyphPath)
+                }
+                pathsByRun[runIndex] = path
+            }
+        }
+
+        return pathsByRun
+            .sorted { $0.key < $1.key }
+            .map { RunPathEntry(path: BezierPath($0.value), runIndex: $0.key) }
+    }
+
+    /// Generates per-TextRun text decoration paths (underline, overline, line-through).
+    func queued_perRunTextDecorationPaths(fromRuns runs: [TextRun], defaultLines: TextDecorationLine, autosize: Bool, width: CGFloat) -> [RunPathEntry] {
+        let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
+        let ctLines = frame.lines
+        let lineOrigins = frame.lineOrigins
+        guard !ctLines.isEmpty else { return [] }
+
+        let runRanges = queued_runRanges(for: runs)
+        let frameOrigin = CGPoint.zero
+
+        var accDx: CGFloat = 0
+        var accDy: CGFloat = 0
+        var lastSeenRunIndex = -1
+        var pathsByRun = [Int: CGMutablePath]()
+
+        for (line, lineOrigin) in zip(ctLines, lineOrigins) {
+            for ctRun in line.runs {
+                let runIndex = queued_textRunIndex(for: ctRun.range, in: runRanges)
+
+                if runIndex != lastSeenRunIndex {
+                    for i in (lastSeenRunIndex + 1)...runIndex where i >= 0 && i < runs.count {
+                        accDx += runs[i].dx
+                        accDy += runs[i].dy
+                    }
+                    lastSeenRunIndex = runIndex
+                }
+
+                let decoLines = runs[runIndex].textDecorationLines ?? defaultLines
+                guard !decoLines.isEmpty else { continue }
+
+                let font = ctRun.font as CTFont
+                let ascent = CTFontGetAscent(font)
+                let underlinePosition = CTFontGetUnderlinePosition(font)
+                let underlineThickness = max(CTFontGetUnderlineThickness(font), 1.0)
+                let xHeight = CTFontGetXHeight(font)
+                let runWidth = ctRun.typographicBounds.width
+
+                let originX = frameOrigin.x + lineOrigin.x + (ctRun.positions.first?.x ?? 0) + accDx
+                let baselineY = frameOrigin.y + lineOrigin.y + accDy
+
+                let path = pathsByRun[runIndex] ?? CGMutablePath()
+
+                if decoLines.contains(.underline) {
+                    let y = baselineY + underlinePosition - underlineThickness / 2.0
+                    path.addRect(CGRect(x: originX, y: y, width: runWidth, height: underlineThickness))
+                }
+                if decoLines.contains(.overline) {
+                    let y = baselineY + ascent - underlineThickness / 2.0
+                    path.addRect(CGRect(x: originX, y: y, width: runWidth, height: underlineThickness))
+                }
+                if decoLines.contains(.lineThrough) {
+                    let y = baselineY + xHeight / 2.0 - underlineThickness / 2.0
+                    path.addRect(CGRect(x: originX, y: y, width: runWidth, height: underlineThickness))
+                }
+
+                pathsByRun[runIndex] = path
+            }
+        }
+
+        return pathsByRun
+            .sorted { $0.key < $1.key }
+            .map { RunPathEntry(path: BezierPath($0.value), runIndex: $0.key) }
     }
 
     func queued_attributedString(fromRuns runs: [TextRun]) -> NSAttributedString {
