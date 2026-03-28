@@ -153,7 +153,15 @@ public extension CanvasDatabase {
             locked_structurePaths(&$0, byIDs: ids)
         }
     }
-    
+
+    /// Returns the y-flipped, un-transformed glyph outline for a text layer,
+    /// or `nil` if the ID doesn't refer to a text layer.
+    func outlinePath(byID id: ID) -> BezierPath? {
+        memberData.withLock {
+            $0.objectById[id]?.outlinePath
+        }
+    }
+
     func effectBounds(ofIDs ids: [ID]) -> Rect {
         memberData.withLock {
             locked_effectBounds(&$0, ofIDs: ids)

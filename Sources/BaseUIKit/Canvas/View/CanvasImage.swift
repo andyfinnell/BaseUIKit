@@ -80,6 +80,8 @@ extension CanvasImage: CanvasObject {
 
     var typographicBounds: CGRect? { nil }
 
+    var outlinePath: BezierPath { structurePath }
+    
     func textIndex(at location: CGPoint) -> TextPosition? {
         nil
     }

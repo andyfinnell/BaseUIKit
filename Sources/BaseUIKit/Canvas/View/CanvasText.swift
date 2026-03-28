@@ -108,9 +108,17 @@ extension CanvasText: CanvasObject {
 
     var structurePath: BezierPath {
         memberData.withLock {
-            var path = BezierPath(locked_cgPath(&$0))
+            var path = locked_outlinePath(&$0)
             path.transform($0.transform)
             return path
+        }
+    }
+
+    /// Glyph outlines in the text element's local coordinate space (y-down),
+    /// without the layer transform applied. Used for converting text to `<path>`.
+    var outlinePath: BezierPath {
+        memberData.withLock {
+            locked_outlinePath(&$0)
         }
     }
 
@@ -351,6 +359,18 @@ private extension CanvasText {
             autosize: memberData.autosize,
             width: memberData.width
         ).cgPath
+    }
+
+    func locked_outlinePath(_ memberData: inout MemberData) -> BezierPath {
+        let cgPath = locked_cgPath(&memberData)
+        let bounds = locked_structureBounds(&memberData)
+        // Same y-flip as setPath() — converts CoreText y-up to SVG y-down
+        var flip = CGAffineTransform(translationX: 0, y: bounds.height)
+            .scaledBy(x: 1, y: -1)
+        guard let flipped = cgPath.copy(using: &flip) else {
+            return BezierPath(cgPath)
+        }
+        return BezierPath(flipped)
     }
 
     func locked_update(
