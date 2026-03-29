@@ -125,7 +125,8 @@ extension CanvasText: CanvasObject {
     var typographicBounds: CGRect? {
         memberData.withLock {
             let localBounds = locked_structureBounds(&$0)
-            return localBounds.applying($0.transform.toCG)
+            let baselineOffset = Self.computeBaselineOffset($0.baseline, runs: $0.runs)
+            return localBounds.offsetBy(dx: 0, dy: baselineOffset)
         }
     }
 
