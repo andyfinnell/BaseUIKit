@@ -596,9 +596,23 @@ private extension ProtectedCoreText {
             let lineHeight = ceil(CTFontGetAscent(font)) + ceil(CTFontGetDescent(font))
             let width = autosize ? 15.0 : width
             return CGRect(x: 0, y: 0, width: width, height: lineHeight)
-        } else {
-            return queued_framesetterBounds(fromRuns: runs, autosize: autosize, width: width)
         }
+
+        var bounds = queued_framesetterBounds(fromRuns: runs, autosize: autosize, width: width)
+
+        // CTFramesetterSuggestFrameSizeWithConstraints excludes trailing
+        // whitespace from its suggested width. Include it so the selection
+        // feedback and hit-testing cover space characters at line edges.
+        let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
+        for line in frame.lines {
+            let trailingWidth = CTLineGetTrailingWhitespaceWidth(line)
+            guard trailingWidth > 0 else { continue }
+            var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
+            let lineWidth = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+            bounds.size.width = max(bounds.size.width, lineWidth + trailingWidth)
+        }
+
+        return bounds
     }
 
     func queued_framesetterBounds(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGRect {

@@ -217,6 +217,15 @@ public extension CanvasDatabase {
             $0.objectById[layerID]?.transform
         }
     }
+
+    /// Returns the typographic bounds of a text layer in the element's local
+    /// coordinate space (y-down, before element transform). Returns nil if the
+    /// ID does not refer to a text layer.
+    func typographicBounds(for layerID: ID) -> Rect? {
+        memberData.withLock {
+            $0.objectById[layerID]?.typographicBounds.map { Rect($0) }
+        }
+    }
 }
 
 #if os(macOS)
