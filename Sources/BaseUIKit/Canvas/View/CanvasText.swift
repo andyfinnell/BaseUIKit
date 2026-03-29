@@ -744,8 +744,11 @@ private extension ProtectedCoreText {
             let lineStart = lineRange.location
             let lineEnd = lineRange.location + lineRange.length
 
-            // Position is within this line, or at the end of the last character
-            guard index >= lineStart && index <= lineEnd else {
+            // Use strict less-than for lineEnd so that a position at
+            // a line boundary (e.g. right after "\n") falls to the next
+            // line instead of staying on the previous one.  The fallback
+            // after the loop handles positions at the very end of text.
+            guard index >= lineStart && index < lineEnd else {
                 continue
             }
 
@@ -921,7 +924,7 @@ private extension ProtectedCoreText {
             let lineRange = CTLineGetStringRange(line)
             let lineStart = lineRange.location
             let lineEnd = lineRange.location + lineRange.length
-            if index >= lineStart && index <= lineEnd {
+            if index >= lineStart && index < lineEnd {
                 return i
             }
         }
@@ -1179,7 +1182,12 @@ private extension ProtectedCoreText {
         }
 
         if let lastCh = attributedString.string.last, lastCh == "\n" {
-            attributedString.append(NSAttributedString(string: " "))
+            // Carry over the font attributes from the preceding text so the
+            // placeholder line has the correct height in CoreText's layout.
+            let lastAttrs = attributedString.length > 0
+                ? attributedString.attributes(at: attributedString.length - 1, effectiveRange: nil)
+                : [:]
+            attributedString.append(NSAttributedString(string: " ", attributes: lastAttrs))
         }
 
         self.attributedStringCache = attributedString
