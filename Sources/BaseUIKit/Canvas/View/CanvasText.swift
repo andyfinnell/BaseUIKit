@@ -4,6 +4,12 @@ import CoreText
 import BaseKit
 import Synchronization
 
+extension NSAttributedString.Key {
+    /// Custom attribute used to force CoreText to produce separate CTRuns
+    /// for TextRuns that need per-run rendering (different fill/stroke).
+    static let canvasTextRunIndex = NSAttributedString.Key("canvasTextRunIndex")
+}
+
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -1180,8 +1186,23 @@ private extension ProtectedCoreText {
             return attributedStringCache
         }
 
-        let attributedString = runs.reduce(into: NSMutableAttributedString()) { partial, run in
-            partial.append(queued_attributedString(from: run))
+        // When any run needs per-run rendering (different fill/stroke/decoration),
+        // tag each run with a unique attribute so CoreText produces separate CTRuns
+        // even when font attributes are identical.
+        let needsRunSplitting = runs.contains(where: \.needsPerRunRendering)
+        let attributedString = runs.enumerated().reduce(into: NSMutableAttributedString()) {
+            partial, indexedRun in
+            let runString = queued_attributedString(from: indexedRun.element)
+            if needsRunSplitting {
+                let mutable = NSMutableAttributedString(attributedString: runString)
+                mutable.addAttribute(
+                    .canvasTextRunIndex,
+                    value: indexedRun.offset,
+                    range: NSRange(location: 0, length: mutable.length))
+                partial.append(mutable)
+            } else {
+                partial.append(runString)
+            }
         }
 
         if let lastCh = attributedString.string.last, lastCh == "\n" {

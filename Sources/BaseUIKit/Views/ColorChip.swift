@@ -127,14 +127,16 @@ final class ColorPanelCoordinator: NSObject {
         
         let panel = NSColorPanel.shared
         panel.isContinuous = true
-        panel.setTarget(self)
-        panel.setAction(#selector(onColorChanged(_:)))
+        panel.color = initialColor.native
         panel.delegate = self
 
-        // Only set once we've pointed to ourselves
-        panel.color = initialColor.native
-
         NSApp.orderFrontColorPanel(panel)
+
+        // Wire up the target/action after the panel is presented so
+        // that neither the programmatic color set nor the panel
+        // presentation fires an unwanted onChange callback.
+        panel.setTarget(self)
+        panel.setAction(#selector(onColorChanged(_:)))
     }
 }
 
