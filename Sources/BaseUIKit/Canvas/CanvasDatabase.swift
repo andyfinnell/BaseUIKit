@@ -203,10 +203,18 @@ public extension CanvasDatabase {
     }
 
     /// Returns the rect where the text insertion caret should be rendered for the given position.
+    /// The rect is in the text element's local coordinate space (before element transform).
     /// Returns nil if the ID does not refer to a text layer.
     func caretRect(at position: TextPosition, in layerID: ID) -> Rect? {
         memberData.withLock {
             locked_caretRect(&$0, at: position, in: layerID)
+        }
+    }
+
+    /// Returns the transform of the layer, or nil if no layer exists with the given ID.
+    func layerTransform(for layerID: ID) -> Transform? {
+        memberData.withLock {
+            $0.objectById[layerID]?.transform
         }
     }
 }

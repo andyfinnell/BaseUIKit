@@ -112,6 +112,10 @@ extension CanvasPath: CanvasObject{
     func caretRect(at position: TextPosition) -> CGRect? {
         nil
     }
+
+    var transform: Transform {
+        memberData.withLock { $0.transform }
+    }
 }
 
 private extension CanvasPath {
