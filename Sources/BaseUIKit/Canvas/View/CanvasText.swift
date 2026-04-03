@@ -130,9 +130,7 @@ extension CanvasText: CanvasObject {
 
     var typographicBounds: CGRect? {
         memberData.withLock {
-            let localBounds = locked_structureBounds(&$0)
-            let baselineOffset = Self.computeBaselineOffset($0.baseline, runs: $0.runs)
-            return localBounds.offsetBy(dx: 0, dy: baselineOffset)
+            locked_typographicBounds(&$0)
         }
     }
 
@@ -188,6 +186,13 @@ private extension CanvasText {
         var filter: FilterLayer?
     }
 
+    func locked_typographicBounds(_ memberData: inout MemberData) -> CGRect {
+        var localBounds = locked_structureBounds(&memberData)
+        localBounds.size.height += locked_dyHeightExpansion(&memberData)
+        let baselineOffset = Self.computeBaselineOffset(memberData.baseline, runs: memberData.runs)
+        return localBounds.offsetBy(dx: 0, dy: baselineOffset)
+    }
+    
     func locked_textIndex(_ memberData: inout MemberData, at point: CGPoint) -> TextPosition? {
         guard let inverseTransform = memberData.transform.inverted() else {
             return nil
@@ -354,6 +359,14 @@ private extension CanvasText {
         }
     }
 
+    func locked_dyHeightExpansion(_ memberData: inout MemberData) -> CGFloat {
+        coreText.dyHeightExpansion(
+            fromRuns: memberData.runs,
+            autosize: memberData.autosize,
+            width: memberData.width
+        )
+    }
+
     func locked_structureBounds(_ memberData: inout MemberData) -> CGRect {
         coreText.structureBounds(
             fromRuns: memberData.runs,
@@ -446,7 +459,9 @@ private extension CanvasText {
     }
 
     func locked_effectiveBounds(_ memberData: inout MemberData) -> CGRect {
-        memberData.decorations.effectiveBounds(for: locked_structureBounds(&memberData))
+        var bounds = locked_structureBounds(&memberData)
+        bounds.size.height += locked_dyHeightExpansion(&memberData)
+        return memberData.decorations.effectiveBounds(for: bounds)
     }
 
     func locked_globalEffectiveBounds(_ memberData: inout MemberData) -> CGRect {
@@ -535,6 +550,12 @@ private final class ProtectedCoreText: @unchecked Sendable {
     func structureBounds(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGRect {
         queue.sync {
             queued_structureBounds(fromRuns: runs, autosize: autosize, width: width)
+        }
+    }
+
+    func dyHeightExpansion(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGFloat {
+        queue.sync {
+            queued_dyHeightExpansion(fromRuns: runs, autosize: autosize, width: width)
         }
     }
 
@@ -714,11 +735,12 @@ private extension ProtectedCoreText {
             return []
         }
 
+        let lineDyOffsets = queued_lineDyOffsets(lines: lines, runs: runs)
         let selStart = range.start.utf16Offset
         let selEnd = range.end.utf16Offset
 
         var rects = [CGRect]()
-        for (line, lineOrigin) in zip(lines, lineOrigins) {
+        for (index, (line, lineOrigin)) in zip(lines, lineOrigins).enumerated() {
             let lineRange = CTLineGetStringRange(line)
             let lineStart = lineRange.location
             let lineEnd = lineRange.location + lineRange.length
@@ -737,9 +759,10 @@ private extension ProtectedCoreText {
             let startX = CTLineGetOffsetForStringIndex(line, clampedStart, nil)
             let endX = CTLineGetOffsetForStringIndex(line, clampedEnd, nil)
 
+            let dyOffset = lineDyOffsets[index]
             let rect = CGRect(
                 x: lineOrigin.x + startX,
-                y: lineOrigin.y - descent,
+                y: lineOrigin.y - descent + dyOffset,
                 width: endX - startX,
                 height: ascent + descent
             )
@@ -761,8 +784,10 @@ private extension ProtectedCoreText {
             return CGRect(x: 0, y: 0, width: caretWidth, height: bounds.height)
         }
 
+        let lineDyOffsets = queued_lineDyOffsets(lines: lines, runs: runs)
+
         // Find the line containing the position
-        for (line, lineOrigin) in zip(lines, lineOrigins) {
+        for (lineIndex, (line, lineOrigin)) in zip(lines, lineOrigins).enumerated() {
             let lineRange = CTLineGetStringRange(line)
             let lineStart = lineRange.location
             let lineEnd = lineRange.location + lineRange.length
@@ -780,10 +805,11 @@ private extension ProtectedCoreText {
             var leading: CGFloat = 0
             CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
 
+            let dyOffset = lineDyOffsets[lineIndex]
             let xOffset = CTLineGetOffsetForStringIndex(line, index, nil)
             return CGRect(
                 x: lineOrigin.x + xOffset - caretWidth / 2.0,
-                y: lineOrigin.y - descent,
+                y: lineOrigin.y - descent + dyOffset,
                 width: caretWidth,
                 height: ascent + descent
             )
@@ -796,10 +822,11 @@ private extension ProtectedCoreText {
         var descent: CGFloat = 0
         var leading: CGFloat = 0
         CTLineGetTypographicBounds(lastLine, &ascent, &descent, &leading)
+        let dyOffset = lineDyOffsets[lines.count - 1]
         let xOffset = CTLineGetOffsetForStringIndex(lastLine, index, nil)
         return CGRect(
             x: lastOrigin.x + xOffset - caretWidth / 2.0,
-            y: lastOrigin.y - descent,
+            y: lastOrigin.y - descent + dyOffset,
             width: caretWidth,
             height: ascent + descent
         )
@@ -814,18 +841,21 @@ private extension ProtectedCoreText {
             return TextPosition(utf16Offset:0)
         }
 
+        let lineDyOffsets = queued_lineDyOffsets(lines: lines, runs: runs)
+
         // Find the closest line by vertical distance to the point
         var closestLine = lines[0]
         var closestLineOrigin = lineOrigins[0]
         var closestDistance = CGFloat.greatestFiniteMagnitude
 
-        for (line, lineOrigin) in zip(lines, lineOrigins) {
+        for (index, (line, lineOrigin)) in zip(lines, lineOrigins).enumerated() {
             var ascent: CGFloat = 0
             var descent: CGFloat = 0
             CTLineGetTypographicBounds(line, &ascent, &descent, nil)
 
-            let lineTop = lineOrigin.y + ascent
-            let lineBottom = lineOrigin.y - descent
+            let dyOffset = lineDyOffsets[index]
+            let lineTop = lineOrigin.y + ascent + dyOffset
+            let lineBottom = lineOrigin.y - descent + dyOffset
 
             let distance: CGFloat
             if point.y >= lineBottom && point.y <= lineTop {
@@ -864,7 +894,9 @@ private extension ProtectedCoreText {
             return TextPosition(utf16Offset:min(index + 1, textLength))
 
         case .wordLeft:
-            guard index > 0 else { return TextPosition(utf16Offset:0) }
+            guard index > 0 else {
+                return TextPosition(utf16Offset:0)
+            }
             let string = queued_attributedString(fromRuns: runs).string as NSString
             var wordStart = index
             string.enumerateSubstrings(
@@ -877,7 +909,9 @@ private extension ProtectedCoreText {
             return TextPosition(utf16Offset:wordStart)
 
         case .wordRight:
-            guard index < textLength else { return TextPosition(utf16Offset:textLength) }
+            guard index < textLength else {
+                return TextPosition(utf16Offset:textLength)
+            }
             let string = queued_attributedString(fromRuns: runs).string as NSString
             var wordEnd = textLength
             string.enumerateSubstrings(
@@ -893,14 +927,18 @@ private extension ProtectedCoreText {
             return TextPosition(utf16Offset:wordEnd)
 
         case .beginningOfParagraph:
-            guard textLength > 0 else { return TextPosition(utf16Offset:0) }
+            guard textLength > 0 else {
+                return TextPosition(utf16Offset:0)
+            }
             let string = queued_attributedString(fromRuns: runs).string as NSString
             let clampedIndex = min(index, textLength - 1)
             let nsRange = string.paragraphRange(for: NSRange(location: clampedIndex, length: 0))
             return TextPosition(utf16Offset:nsRange.location)
 
         case .endOfParagraph:
-            guard textLength > 0 else { return TextPosition(utf16Offset:0) }
+            guard textLength > 0 else {
+                return TextPosition(utf16Offset:0)
+            }
             let string = queued_attributedString(fromRuns: runs).string as NSString
             let clampedIndex = min(index, textLength - 1)
             let nsRange = string.paragraphRange(for: NSRange(location: clampedIndex, length: 0))
@@ -977,11 +1015,28 @@ private extension ProtectedCoreText {
             return finalPath
         }
 
+        let runRanges = queued_runRanges(for: runs)
+        var accDx: CGFloat = 0
+        var accDy: CGFloat = 0
+        var lastSeenRunIndex = -1
+
         for (line, lineOrigin) in zip(lines, frame.lineOrigins) {
             for run in line.runs {
+                let runIndex = queued_textRunIndex(for: run.range, in: runRanges)
+                if runIndex != lastSeenRunIndex {
+                    for i in (lastSeenRunIndex + 1)...runIndex where i >= 0 && i < runs.count {
+                        accDx += runs[i].dx
+                        accDy += runs[i].dy
+                    }
+                    lastSeenRunIndex = runIndex
+                }
+
                 let coreFont = run.font as CTFont
                 for (glyph, position) in zip(run.glyphs, run.positions) {
-                    let finalPosition = frameOrigin + lineOrigin + position
+                    let finalPosition = CGPoint(
+                        x: frameOrigin.x + lineOrigin.x + position.x + accDx,
+                        y: frameOrigin.y + lineOrigin.y + position.y + accDy
+                    )
                     var glyphTransform = CGAffineTransform(
                         translationX: finalPosition.x,
                         y: finalPosition.y
@@ -1009,8 +1064,9 @@ private extension ProtectedCoreText {
 
         guard !ctLines.isEmpty else { return path }
 
+        let lineDyOffsets = queued_lineDyOffsets(lines: ctLines, runs: runs)
         let frameOrigin = CGPoint.zero
-        for (line, lineOrigin) in zip(ctLines, lineOrigins) {
+        for (index, (line, lineOrigin)) in zip(ctLines, lineOrigins).enumerated() {
             var ascent: CGFloat = 0
             var descent: CGFloat = 0
             var leading: CGFloat = 0
@@ -1023,8 +1079,9 @@ private extension ProtectedCoreText {
             let underlineThickness = max(CTFontGetUnderlineThickness(font), 1.0)
             let xHeight = CTFontGetXHeight(font)
 
+            let dyOffset = lineDyOffsets[index]
             let originX = frameOrigin.x + lineOrigin.x
-            let baselineY = frameOrigin.y + lineOrigin.y
+            let baselineY = frameOrigin.y + lineOrigin.y + dyOffset
 
             if lines.contains(.underline) {
                 let y = baselineY + underlinePosition - underlineThickness / 2.0
@@ -1043,6 +1100,60 @@ private extension ProtectedCoreText {
         }
 
         return path
+    }
+
+    // MARK: - Per-Line dy Offsets
+
+    /// Computes the extra height needed to contain all lines after dy offsets
+    /// are applied. Returns the amount to add to the structure bounds height
+    /// (in top-down coordinates) so that selection feedback and invalidation
+    /// cover the full extent. Always non-negative.
+    func queued_dyHeightExpansion(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGFloat {
+        let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
+        let lines = frame.lines
+        guard !lines.isEmpty else {
+            return 0
+        }
+        let lineDyOffsets = queued_lineDyOffsets(lines: lines, runs: runs)
+        let frameHeight = queued_framesetterBounds(
+            fromRuns: runs, autosize: autosize, width: width).height
+        var maxBottomTopDown: CGFloat = frameHeight
+        for (index, (line, lineOrigin)) in zip(lines, frame.lineOrigins).enumerated() {
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            var leading: CGFloat = 0
+            CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
+            let dyOffset = lineDyOffsets[index]
+            // Convert line bottom from CoreText Y-up to top-down
+            let lineBottomTopDown = frameHeight - (lineOrigin.y - descent + dyOffset)
+            maxBottomTopDown = max(maxBottomTopDown, lineBottomTopDown)
+        }
+        return maxBottomTopDown - frameHeight
+    }
+
+    /// Computes the accumulated dy offset for each line in the CTFrame.
+    /// Lines in CoreText don't account for TextRun dy values; this maps
+    /// each line's string position to the accumulated dy from all preceding runs.
+    func queued_lineDyOffsets(lines: [CTLine], runs: [TextRun]) -> [CGFloat] {
+        guard !runs.isEmpty else {
+            return Array(repeating: 0, count: lines.count)
+        }
+        let runRanges = queued_runRanges(for: runs)
+        // Pre-compute cumulative dy at the START of each TextRun
+        var cumulativeDy = [CGFloat]()
+        var accDy: CGFloat = 0
+        for run in runs {
+            accDy += run.dy
+            cumulativeDy.append(accDy)
+        }
+        return lines.map { line in
+            let lineRange = CTLineGetStringRange(line)
+            let lineStart = lineRange.location
+            // Find the TextRun that contains the start of this line
+            let runIndex = queued_textRunIndex(
+                for: CFRange(location: lineStart, length: 1), in: runRanges)
+            return cumulativeDy[runIndex]
+        }
     }
 
     // MARK: - Per-Run Paths
