@@ -16,4 +16,5 @@ public enum Cursor: Sendable, Hashable {
     case resizeSouthEast
     case iBeam
     case penClosePath
+    case penAddPoint
 }

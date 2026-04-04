@@ -33,12 +33,26 @@ private extension Cursor {
         case .resizeSouthEast: NSCursor.frameResize(position: .bottomRight, directions: .all)
         case .iBeam: NSCursor.iBeam
         case .penClosePath: Self.makePenClosePathCursor()
+        case .penAddPoint: Self.makePenAddPointCursor()
         }
     }
 
     static func makePenClosePathCursor() -> NSCursor {
         guard let url = Bundle.module.url(
             forResource: "pen_close_path@2x",
+            withExtension: "png",
+            subdirectory: "Resources"
+        ) else {
+            return NSCursor.crosshair
+        }
+        let image = NSImage(contentsOf: url) ?? NSImage()
+        image.size = NSSize(width: 21, height: 21)
+        return NSCursor(image: image, hotSpot: NSPoint(x: 10.5, y: 10.5))
+    }
+
+    static func makePenAddPointCursor() -> NSCursor {
+        guard let url = Bundle.module.url(
+            forResource: "pen_add_point@2x",
             withExtension: "png",
             subdirectory: "Resources"
         ) else {

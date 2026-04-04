@@ -4,6 +4,8 @@
 // Usage: swift scripts/generate_cursor_images.swift
 // Output: Sources/BaseUIKit/Resources/pen_close_path.png (1x)
 //         Sources/BaseUIKit/Resources/pen_close_path@2x.png (2x)
+//         Sources/BaseUIKit/Resources/pen_add_point.png (1x)
+//         Sources/BaseUIKit/Resources/pen_add_point@2x.png (2x)
 
 import CoreGraphics
 import Foundation
@@ -58,7 +60,58 @@ func drawPenClosePathCursor(context: CGContext, size: Int) {
     context.strokeEllipse(in: circleRect)
 }
 
-func generatePNG(size: Int, path: String) {
+func drawPenAddPointCursor(context: CGContext, size: Int) {
+    let scale = Double(size) / 21.0
+    let center = Double(size) / 2.0
+
+    context.setLineCap(.butt)
+    context.setLineJoin(.miter)
+
+    let armLength = 7.0 * scale
+
+    // White outline for contrast
+    context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    context.setLineWidth(3.0 * scale)
+    context.move(to: CGPoint(x: center - armLength, y: center))
+    context.addLine(to: CGPoint(x: center + armLength, y: center))
+    context.move(to: CGPoint(x: center, y: center - armLength))
+    context.addLine(to: CGPoint(x: center, y: center + armLength))
+    context.strokePath()
+
+    // Black crosshair
+    context.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+    context.setLineWidth(1.0 * scale)
+    context.move(to: CGPoint(x: center - armLength, y: center))
+    context.addLine(to: CGPoint(x: center + armLength, y: center))
+    context.move(to: CGPoint(x: center, y: center - armLength))
+    context.addLine(to: CGPoint(x: center, y: center + armLength))
+    context.strokePath()
+
+    // Small plus indicator at bottom-right
+    let plusHalf = 3.5 * scale
+    let plusOffset = 6.5 * scale
+    let plusCenter = CGPoint(x: center + plusOffset, y: center + plusOffset)
+
+    // White plus outline
+    context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    context.setLineWidth(3.0 * scale)
+    context.move(to: CGPoint(x: plusCenter.x - plusHalf, y: plusCenter.y))
+    context.addLine(to: CGPoint(x: plusCenter.x + plusHalf, y: plusCenter.y))
+    context.move(to: CGPoint(x: plusCenter.x, y: plusCenter.y - plusHalf))
+    context.addLine(to: CGPoint(x: plusCenter.x, y: plusCenter.y + plusHalf))
+    context.strokePath()
+
+    // Black plus
+    context.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+    context.setLineWidth(1.0 * scale)
+    context.move(to: CGPoint(x: plusCenter.x - plusHalf, y: plusCenter.y))
+    context.addLine(to: CGPoint(x: plusCenter.x + plusHalf, y: plusCenter.y))
+    context.move(to: CGPoint(x: plusCenter.x, y: plusCenter.y - plusHalf))
+    context.addLine(to: CGPoint(x: plusCenter.x, y: plusCenter.y + plusHalf))
+    context.strokePath()
+}
+
+func generatePNG(size: Int, draw: (CGContext, Int) -> Void, path: String) {
     let colorSpace = CGColorSpaceCreateDeviceRGB()
     guard let context = CGContext(
         data: nil,
@@ -77,7 +130,7 @@ func generatePNG(size: Int, path: String) {
     context.translateBy(x: 0, y: Double(size))
     context.scaleBy(x: 1, y: -1)
 
-    drawPenClosePathCursor(context: context, size: size)
+    draw(context, size)
 
     guard let image = context.makeImage() else {
         fatalError("Failed to create CGImage")
@@ -109,5 +162,7 @@ let resourceDir = scriptDir
 
 try FileManager.default.createDirectory(at: resourceDir, withIntermediateDirectories: true)
 
-generatePNG(size: 21, path: resourceDir.appendingPathComponent("pen_close_path.png").path)
-generatePNG(size: 42, path: resourceDir.appendingPathComponent("pen_close_path@2x.png").path)
+generatePNG(size: 21, draw: drawPenClosePathCursor, path: resourceDir.appendingPathComponent("pen_close_path.png").path)
+generatePNG(size: 42, draw: drawPenClosePathCursor, path: resourceDir.appendingPathComponent("pen_close_path@2x.png").path)
+generatePNG(size: 21, draw: drawPenAddPointCursor, path: resourceDir.appendingPathComponent("pen_add_point.png").path)
+generatePNG(size: 42, draw: drawPenAddPointCursor, path: resourceDir.appendingPathComponent("pen_add_point@2x.png").path)
