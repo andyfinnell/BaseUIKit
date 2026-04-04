@@ -26,6 +26,9 @@ let package = Package(
             name: "BaseUIKit",
             dependencies: [
                 .product(name: "BaseKit", package: "BaseKit")
+            ],
+            resources: [
+                .copy("Resources")
             ]
         ),
         .testTarget(
