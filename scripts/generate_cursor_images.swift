@@ -6,6 +6,8 @@
 //         Sources/BaseUIKit/Resources/pen_close_path@2x.png (2x)
 //         Sources/BaseUIKit/Resources/pen_add_point.png (1x)
 //         Sources/BaseUIKit/Resources/pen_add_point@2x.png (2x)
+//         Sources/BaseUIKit/Resources/pen_remove_point.png (1x)
+//         Sources/BaseUIKit/Resources/pen_remove_point@2x.png (2x)
 
 import CoreGraphics
 import Foundation
@@ -111,6 +113,53 @@ func drawPenAddPointCursor(context: CGContext, size: Int) {
     context.strokePath()
 }
 
+func drawPenRemovePointCursor(context: CGContext, size: Int) {
+    let scale = Double(size) / 21.0
+    let center = Double(size) / 2.0
+
+    context.setLineCap(.butt)
+    context.setLineJoin(.miter)
+
+    let armLength = 7.0 * scale
+
+    // White outline for contrast
+    context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    context.setLineWidth(3.0 * scale)
+    context.move(to: CGPoint(x: center - armLength, y: center))
+    context.addLine(to: CGPoint(x: center + armLength, y: center))
+    context.move(to: CGPoint(x: center, y: center - armLength))
+    context.addLine(to: CGPoint(x: center, y: center + armLength))
+    context.strokePath()
+
+    // Black crosshair
+    context.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+    context.setLineWidth(1.0 * scale)
+    context.move(to: CGPoint(x: center - armLength, y: center))
+    context.addLine(to: CGPoint(x: center + armLength, y: center))
+    context.move(to: CGPoint(x: center, y: center - armLength))
+    context.addLine(to: CGPoint(x: center, y: center + armLength))
+    context.strokePath()
+
+    // Small minus indicator at bottom-right
+    let minusHalf = 3.5 * scale
+    let minusOffset = 6.5 * scale
+    let minusCenter = CGPoint(x: center + minusOffset, y: center + minusOffset)
+
+    // White minus outline
+    context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    context.setLineWidth(3.0 * scale)
+    context.move(to: CGPoint(x: minusCenter.x - minusHalf, y: minusCenter.y))
+    context.addLine(to: CGPoint(x: minusCenter.x + minusHalf, y: minusCenter.y))
+    context.strokePath()
+
+    // Black minus
+    context.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+    context.setLineWidth(1.0 * scale)
+    context.move(to: CGPoint(x: minusCenter.x - minusHalf, y: minusCenter.y))
+    context.addLine(to: CGPoint(x: minusCenter.x + minusHalf, y: minusCenter.y))
+    context.strokePath()
+}
+
 func generatePNG(size: Int, draw: (CGContext, Int) -> Void, path: String) {
     let colorSpace = CGColorSpaceCreateDeviceRGB()
     guard let context = CGContext(
@@ -166,3 +215,5 @@ generatePNG(size: 21, draw: drawPenClosePathCursor, path: resourceDir.appendingP
 generatePNG(size: 42, draw: drawPenClosePathCursor, path: resourceDir.appendingPathComponent("pen_close_path@2x.png").path)
 generatePNG(size: 21, draw: drawPenAddPointCursor, path: resourceDir.appendingPathComponent("pen_add_point.png").path)
 generatePNG(size: 42, draw: drawPenAddPointCursor, path: resourceDir.appendingPathComponent("pen_add_point@2x.png").path)
+generatePNG(size: 21, draw: drawPenRemovePointCursor, path: resourceDir.appendingPathComponent("pen_remove_point.png").path)
+generatePNG(size: 42, draw: drawPenRemovePointCursor, path: resourceDir.appendingPathComponent("pen_remove_point@2x.png").path)
