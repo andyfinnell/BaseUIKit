@@ -10,6 +10,8 @@
 //         Sources/BaseUIKit/Resources/pen_remove_point@2x.png (2x)
 //         Sources/BaseUIKit/Resources/pen_continue.png (1x)
 //         Sources/BaseUIKit/Resources/pen_continue@2x.png (2x)
+//         Sources/BaseUIKit/Resources/pen_convert_point.png (1x)
+//         Sources/BaseUIKit/Resources/pen_convert_point@2x.png (2x)
 
 import CoreGraphics
 import Foundation
@@ -217,6 +219,60 @@ func drawPenContinueCursor(context: CGContext, size: Int) {
     context.strokePath()
 }
 
+func drawPenConvertPointCursor(context: CGContext, size: Int) {
+    let scale = Double(size) / 21.0
+    let center = Double(size) / 2.0
+
+    context.setLineCap(.butt)
+    context.setLineJoin(.miter)
+
+    let armLength = 7.0 * scale
+
+    // White outline for contrast
+    context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    context.setLineWidth(3.0 * scale)
+    context.move(to: CGPoint(x: center - armLength, y: center))
+    context.addLine(to: CGPoint(x: center + armLength, y: center))
+    context.move(to: CGPoint(x: center, y: center - armLength))
+    context.addLine(to: CGPoint(x: center, y: center + armLength))
+    context.strokePath()
+
+    // Black crosshair
+    context.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+    context.setLineWidth(1.0 * scale)
+    context.move(to: CGPoint(x: center - armLength, y: center))
+    context.addLine(to: CGPoint(x: center + armLength, y: center))
+    context.move(to: CGPoint(x: center, y: center - armLength))
+    context.addLine(to: CGPoint(x: center, y: center + armLength))
+    context.strokePath()
+
+    // Small chevron (^) indicator at bottom-right: two lines meeting at an apex
+    // pointing up. Communicates "convert to corner point".
+    let chevronHalf = 3.5 * scale
+    let chevronHeight = 3.0 * scale
+    let chevronOffset = 6.5 * scale
+    let chevronCenter = CGPoint(x: center + chevronOffset, y: center + chevronOffset)
+    let apex = CGPoint(x: chevronCenter.x, y: chevronCenter.y - chevronHeight / 2.0)
+    let leftFoot = CGPoint(x: chevronCenter.x - chevronHalf, y: chevronCenter.y + chevronHeight / 2.0)
+    let rightFoot = CGPoint(x: chevronCenter.x + chevronHalf, y: chevronCenter.y + chevronHeight / 2.0)
+
+    // White chevron outline
+    context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    context.setLineWidth(3.0 * scale)
+    context.move(to: leftFoot)
+    context.addLine(to: apex)
+    context.addLine(to: rightFoot)
+    context.strokePath()
+
+    // Black chevron
+    context.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+    context.setLineWidth(1.0 * scale)
+    context.move(to: leftFoot)
+    context.addLine(to: apex)
+    context.addLine(to: rightFoot)
+    context.strokePath()
+}
+
 func generatePNG(size: Int, draw: (CGContext, Int) -> Void, path: String) {
     let colorSpace = CGColorSpaceCreateDeviceRGB()
     guard let context = CGContext(
@@ -276,3 +332,5 @@ generatePNG(size: 21, draw: drawPenRemovePointCursor, path: resourceDir.appendin
 generatePNG(size: 42, draw: drawPenRemovePointCursor, path: resourceDir.appendingPathComponent("pen_remove_point@2x.png").path)
 generatePNG(size: 21, draw: drawPenContinueCursor, path: resourceDir.appendingPathComponent("pen_continue.png").path)
 generatePNG(size: 42, draw: drawPenContinueCursor, path: resourceDir.appendingPathComponent("pen_continue@2x.png").path)
+generatePNG(size: 21, draw: drawPenConvertPointCursor, path: resourceDir.appendingPathComponent("pen_convert_point.png").path)
+generatePNG(size: 42, draw: drawPenConvertPointCursor, path: resourceDir.appendingPathComponent("pen_convert_point@2x.png").path)

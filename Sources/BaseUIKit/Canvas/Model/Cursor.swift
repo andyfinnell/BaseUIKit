@@ -19,4 +19,5 @@ public enum Cursor: Sendable, Hashable {
     case penAddPoint
     case penRemovePoint
     case penContinue
+    case penConvertPoint
 }
