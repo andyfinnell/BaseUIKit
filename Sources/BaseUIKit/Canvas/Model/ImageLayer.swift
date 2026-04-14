@@ -10,6 +10,7 @@ public struct ImageLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifia
     public let width: Double
     public let height: Double
     public let imageData: Data?
+    public let sourceLabel: String?
     public let clipRect: Rect?
     public let filter: FilterLayer?
 
@@ -22,6 +23,7 @@ public struct ImageLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifia
         width: Double,
         height: Double,
         imageData: Data?,
+        sourceLabel: String? = nil,
         clipRect: Rect? = nil,
         filter: FilterLayer? = nil
     ) {
@@ -33,6 +35,7 @@ public struct ImageLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifia
         self.width = width
         self.height = height
         self.imageData = imageData
+        self.sourceLabel = sourceLabel
         self.clipRect = clipRect
         self.filter = filter
     }

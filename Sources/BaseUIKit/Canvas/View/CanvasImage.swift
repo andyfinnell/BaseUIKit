@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import CoreText
 import ImageIO
 import BaseKit
 import Synchronization
@@ -25,6 +26,7 @@ final class CanvasImage<ID: Hashable & Sendable>: Sendable {
                 width: layer.width,
                 height: layer.height,
                 imageData: layer.imageData,
+                sourceLabel: layer.sourceLabel,
                 clipRect: layer.clipRect,
                 filter: layer.filter,
                 imageCache: nil
@@ -114,6 +116,7 @@ private extension CanvasImage {
         var width: Double
         var height: Double
         var imageData: Data?
+        var sourceLabel: String?
         var clipRect: Rect?
         var filter: FilterLayer?
         var imageCache: CGImage?
@@ -149,6 +152,10 @@ private extension CanvasImage {
         if memberData.imageData != layer.imageData {
             memberData.imageData = layer.imageData
             memberData.imageCache = nil
+            didChange = true
+        }
+        if memberData.sourceLabel != layer.sourceLabel {
+            memberData.sourceLabel = layer.sourceLabel
             didChange = true
         }
         if memberData.clipRect != layer.clipRect {
@@ -228,21 +235,139 @@ private extension CanvasImage {
     }
 
     func locked_drawBrokenImagePlaceholder(_ memberData: inout MemberData, in bounds: CGRect, into context: CGContext) {
+        let borderColor = CGColor(gray: 0.67, alpha: 1)
+        let iconColor = CGColor(gray: 0.4, alpha: 1)
         let strokeWidth = max(1.0, min(bounds.width, bounds.height) * 0.02)
 
-        // Red border rectangle
-        context.setStrokeColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        // Light gray background
+        context.setFillColor(CGColor(gray: 0.94, alpha: 1))
+        context.fill([bounds])
+
+        // Gray border
+        context.setStrokeColor(borderColor)
         context.setLineWidth(strokeWidth)
         let inset = strokeWidth / 2
         context.stroke(bounds.insetBy(dx: inset, dy: inset))
 
-        // Red X from corner to corner
+        let minDimension = min(bounds.width, bounds.height)
+
+        // Draw icon if there's enough space
+        if minDimension >= 20 {
+            locked_drawBrokenImageIcon(in: bounds, iconColor: iconColor, into: context)
+        }
+
+        // Draw filename text if there's enough space
+        if let sourceLabel = memberData.sourceLabel, !sourceLabel.isEmpty,
+           bounds.width >= 40, bounds.height >= 30
+        {
+            locked_drawSourceLabel(sourceLabel, in: bounds, color: iconColor, into: context)
+        }
+    }
+
+    func locked_drawBrokenImageIcon(in bounds: CGRect, iconColor: CGColor, into context: CGContext) {
+        let minDimension = min(bounds.width, bounds.height)
+        let iconSize = max(minDimension * 0.4, 12)
+        let iconLineWidth = max(1.0, iconSize * 0.06)
+
+        // Center icon in upper portion of bounds (leave room for text below)
+        let iconRect = CGRect(
+            x: bounds.midX - iconSize / 2,
+            y: bounds.midY - iconSize / 2 - iconSize * 0.15,
+            width: iconSize,
+            height: iconSize * 0.8
+        )
+
+        context.saveGState()
+        context.setStrokeColor(iconColor)
+        context.setFillColor(iconColor)
+        context.setLineWidth(iconLineWidth)
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+
+        // Outer frame
+        context.stroke(iconRect)
+
+        let padding = iconSize * 0.15
+
+        // Mountain (triangle)
+        let mountainBase = iconRect.maxY - padding
+        let mountainLeft = iconRect.minX + padding
+        let mountainRight = iconRect.maxX - padding
+        let mountainPeak = iconRect.minY + iconRect.height * 0.4
+
         context.beginPath()
-        context.move(to: CGPoint(x: bounds.minX, y: bounds.minY))
-        context.addLine(to: CGPoint(x: bounds.maxX, y: bounds.maxY))
-        context.move(to: CGPoint(x: bounds.maxX, y: bounds.minY))
-        context.addLine(to: CGPoint(x: bounds.minX, y: bounds.maxY))
+        context.move(to: CGPoint(x: mountainLeft, y: mountainBase))
+        context.addLine(to: CGPoint(x: (mountainLeft + mountainRight) / 2, y: mountainPeak))
+        context.addLine(to: CGPoint(x: mountainRight, y: mountainBase))
+        context.closePath()
         context.strokePath()
+
+        // Sun (small circle in upper-right)
+        let sunRadius = iconSize * 0.08
+        let sunCenter = CGPoint(
+            x: iconRect.maxX - padding - sunRadius,
+            y: iconRect.minY + padding + sunRadius
+        )
+        context.fillEllipse(in: CGRect(
+            x: sunCenter.x - sunRadius,
+            y: sunCenter.y - sunRadius,
+            width: sunRadius * 2,
+            height: sunRadius * 2
+        ))
+
+        // Diagonal strike-through line across the whole icon
+        context.setStrokeColor(CGColor(red: 0.8, green: 0.2, blue: 0.2, alpha: 1))
+        context.setLineWidth(iconLineWidth * 1.5)
+        context.beginPath()
+        context.move(to: CGPoint(x: iconRect.minX, y: iconRect.minY))
+        context.addLine(to: CGPoint(x: iconRect.maxX, y: iconRect.maxY))
+        context.strokePath()
+
+        context.restoreGState()
+    }
+
+    func locked_drawSourceLabel(_ label: String, in bounds: CGRect, color: CGColor, into context: CGContext) {
+        let fontSize = max(min(bounds.width * 0.08, bounds.height * 0.1), 6)
+        let padding = fontSize * 0.5
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NativeFont.systemFont(ofSize: fontSize),
+            NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
+        ]
+        let attrString = NSAttributedString(string: label, attributes: attributes)
+        let line = CTLineCreateWithAttributedString(attrString)
+
+        // Truncate if necessary
+        let maxWidth = Double(bounds.width - padding * 2)
+        var typographicAscent: CGFloat = 0
+        var typographicDescent: CGFloat = 0
+        let textWidth = CTLineGetTypographicBounds(line, &typographicAscent, &typographicDescent, nil)
+
+        let drawnLine: CTLine
+        if textWidth > maxWidth {
+            let truncationAttr = NSAttributedString(string: "\u{2026}", attributes: attributes)
+            let truncationToken = CTLineCreateWithAttributedString(truncationAttr)
+            drawnLine = CTLineCreateTruncatedLine(line, maxWidth, .end, truncationToken) ?? line
+        } else {
+            drawnLine = line
+        }
+
+        // Recalculate width of the line we'll actually draw
+        var drawnAscent: CGFloat = 0
+        var drawnDescent: CGFloat = 0
+        let drawnWidth = CTLineGetTypographicBounds(drawnLine, &drawnAscent, &drawnDescent, nil)
+
+        // Position text centered horizontally, in the lower portion of bounds
+        let textX = bounds.midX - CGFloat(drawnWidth) / 2
+        let textY = bounds.midY + bounds.height * 0.25
+
+        // CoreText draws in Y-up space; flip locally for the text
+        context.saveGState()
+        context.setFillColor(color)
+        context.translateBy(x: textX, y: textY + drawnAscent)
+        context.scaleBy(x: 1, y: -1)
+        CTLineDraw(drawnLine, context)
+        context.restoreGState()
     }
 
     func locked_image(_ memberData: inout MemberData) -> CGImage? {
