@@ -28,4 +28,10 @@ protocol CanvasObject<ID>: AnyObject, Sendable {
     func textRects(for range: TextRange) -> [CGRect]?
     func navigateText(_ navigation: TextNavigation, from position: TextPosition) -> TextPosition?
     func caretRect(at position: TextPosition) -> CGRect?
+
+    func sampleColor(at canvasLocation: CGPoint) -> Color?
+}
+
+extension CanvasObject {
+    func sampleColor(at canvasLocation: CGPoint) -> Color? { nil }
 }

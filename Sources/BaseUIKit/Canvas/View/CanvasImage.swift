@@ -103,6 +103,10 @@ extension CanvasImage: CanvasObject {
     var transform: Transform {
         memberData.withLock { $0.transform }
     }
+
+    func sampleColor(at canvasLocation: CGPoint) -> Color? {
+        memberData.withLock { locked_sampleColor(&$0, at: canvasLocation) }
+    }
 }
 
 private extension CanvasImage {
@@ -392,5 +396,59 @@ private extension CanvasImage {
     
     func locked_globalBounds(_ memberData: inout MemberData) -> CGRect {
         memberData.transform.apply(to: locked_structureBounds(&memberData))
+    }
+
+    func locked_sampleColor(_ memberData: inout MemberData, at canvasLocation: CGPoint) -> Color? {
+        guard let cgImage = locked_image(&memberData) else { return nil }
+        guard let inverse = memberData.transform.inverted() else { return nil }
+
+        let localPoint = inverse.applying(to: Point(canvasLocation))
+
+        guard localPoint.x >= 0, localPoint.y >= 0,
+            localPoint.x < memberData.width, localPoint.y < memberData.height
+        else { return nil }
+
+        let scaleX = Double(cgImage.width) / memberData.width
+        let scaleY = Double(cgImage.height) / memberData.height
+        let pixelX = Int(localPoint.x * scaleX)
+        let pixelY = Int(localPoint.y * scaleY)
+
+        guard pixelX >= 0, pixelX < cgImage.width,
+            pixelY >= 0, pixelY < cgImage.height
+        else { return nil }
+
+        // Draw 1x1 pixel into a known-format context to avoid parsing arbitrary pixel formats
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        guard let context = CGContext(
+            data: nil,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+
+        context.draw(
+            cgImage,
+            in: CGRect(
+                x: -pixelX, y: -(cgImage.height - 1 - pixelY),
+                width: cgImage.width, height: cgImage.height
+            )
+        )
+
+        guard let data = context.data else { return nil }
+        let pixel = data.assumingMemoryBound(to: UInt8.self)
+        let r = Double(pixel[0]) / 255.0
+        let g = Double(pixel[1]) / 255.0
+        let b = Double(pixel[2]) / 255.0
+        let a = Double(pixel[3]) / 255.0
+
+        // Unpremultiply alpha
+        if a > 0 {
+            return Color(red: r / a, green: g / a, blue: b / a, alpha: a)
+        } else {
+            return Color(red: 0, green: 0, blue: 0, alpha: 0)
+        }
     }
 }

@@ -168,6 +168,15 @@ public extension CanvasDatabase {
         }
     }
 
+    /// Samples the pixel color from an image layer at the given canvas-space location.
+    /// Returns `nil` if the layer is not an image, the location is outside the image bounds,
+    /// or the image data cannot be decoded.
+    func sampleImageColor(at location: Point, in layerID: ID) -> Color? {
+        memberData.withLock { memberData in
+            memberData.objectById[layerID]?.sampleColor(at: location.toCG)
+        }
+    }
+
     /// Draws only the layers matching `ids` into the given context.
     /// The context should already be configured with the desired coordinate transform.
     func drawElements(ids: Set<ID>, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
