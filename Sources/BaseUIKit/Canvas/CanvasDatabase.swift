@@ -977,6 +977,15 @@ private extension CanvasDatabase {
     
     func locked_remove(_ memberData: inout MemberData, byID id: ID, invalidates: inout Set<CanvasInvalidation>) {
         locked_removeConcrete(&memberData, byID: id, invalidates: &invalidates)
+
+        // Cascade: remove any computed layers that depended on this layer
+        if let dependents = memberData.computedLayersBasedOnID.removeValue(forKey: id) {
+            for computed in dependents {
+                if let generated = memberData.generatedLayersByComputedID[computed.id] {
+                    locked_removeComputed(&memberData, byID: computed.id, generated: generated, invalidates: &invalidates)
+                }
+            }
+        }
     }
         
     func locked_removeComputed(_ memberData: inout MemberData, byID id: ID, generated: Generated, invalidates: inout Set<CanvasInvalidation>) {
