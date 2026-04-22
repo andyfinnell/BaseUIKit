@@ -37,6 +37,7 @@ private extension Cursor {
         case .penRemovePoint: Self.makePenRemovePointCursor()
         case .penContinue: Self.makePenContinueCursor()
         case .penConvertPoint: Self.makePenConvertPointCursor()
+        case .notAllowed: NSCursor.operationNotAllowed
         }
     }
 
