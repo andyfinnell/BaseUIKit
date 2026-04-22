@@ -20,5 +20,9 @@ public extension BezierPath {
     ) -> BezierPath {
         BezierPath(cgPath.symmetricDifference(other.cgPath, using: fillRule.toCG))
     }
+
+    func componentsSeparated(using fillRule: FillRule = .winding) -> [BezierPath] {
+        cgPath.componentsSeparated(using: fillRule.toCG).map { BezierPath($0) }
+    }
 }
 #endif
