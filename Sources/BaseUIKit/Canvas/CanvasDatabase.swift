@@ -41,7 +41,7 @@ public final class CanvasDatabase<ID: Hashable & Sendable>: Sendable {
         }
     }
         
-    func convertViewToDocument(_ pointInViewCoords: CGPoint) -> CGPoint {
+    public func convertViewToDocument(_ pointInViewCoords: CGPoint) -> CGPoint {
         memberData.withLock {
             locked_convertViewToDocument(&$0, pointInViewCoords)
         }
@@ -78,7 +78,7 @@ public final class CanvasDatabase<ID: Hashable & Sendable>: Sendable {
         }
     }
     
-    var visibleSize: CGSize {
+    public var visibleSize: CGSize {
         memberData.withLock { $0.visibleSize }
     }
     
@@ -97,7 +97,7 @@ public final class CanvasDatabase<ID: Hashable & Sendable>: Sendable {
         }
     }
     
-    var visibleOffset: CGPoint {
+    public var visibleOffset: CGPoint {
         get { memberData.withLock { $0.visibleOffset } }
         set {
             memberData.withLock {
