@@ -5,10 +5,12 @@ public protocol SliderFieldParser<Value>: FieldParser {
     static func fromDoubleValue(_ number: Double, existing: Value) -> Value
 }
 
-public struct ValueSliderField<Parser: SliderFieldParser>: View {
+public struct InlineSliderField<Parser: SliderFieldParser>: View {
     private let title: String
     private let value: SmartBind<Parser.Value, ExtraEmpty>
     private let range: ClosedRange<Double>
+    private let step: Double?
+    private let defaultSliderValue: Double?
     private let onBeginEditing: Callback<Void>
     private let onEndEditing: Callback<Void>
     @State private var errorMessage: String?
@@ -22,6 +24,8 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
         value: Parser.Value,
         onChange: @escaping (Parser.Value) -> Void,
         in range: ClosedRange<Double>,
+        step: Double? = nil,
+        defaultSliderValue: Double? = nil,
         errorMessage: String? = nil,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
@@ -29,6 +33,8 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
         self.title = title
         self.value = SmartBind(value, onChange)
         self.range = range
+        self.step = step
+        self.defaultSliderValue = defaultSliderValue
         self.onBeginEditing = Callback(onBeginEditing)
         self.onEndEditing = Callback(onEndEditing)
         self.errorMessage = errorMessage
@@ -38,19 +44,33 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
         _ title: String,
         value: Binding<Parser.Value>,
         in range: ClosedRange<Double>,
+        step: Double? = nil,
+        defaultSliderValue: Double? = nil,
         errorMessage: String? = nil,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
-        self.init(title, value: value.wrappedValue, onChange: { value.wrappedValue = $0 }, in: range, errorMessage: errorMessage, onBeginEditing: onBeginEditing, onEndEditing: onEndEditing)
+        self.init(
+            title,
+            value: value.wrappedValue,
+            onChange: { value.wrappedValue = $0 },
+            in: range,
+            step: step,
+            defaultSliderValue: defaultSliderValue,
+            errorMessage: errorMessage,
+            onBeginEditing: onBeginEditing,
+            onEndEditing: onEndEditing
+        )
     }
-    
+
     public init<C: RandomAccessCollection & Sendable>(
         _ title: String,
         sources: C,
         value: KeyPath<C.Element, Parser.Value> & Sendable,
         onChange: @escaping (Parser.Value) -> Void,
         in range: ClosedRange<Double>,
+        step: Double? = nil,
+        defaultSliderValue: Double? = nil,
         errorMessage: String? = nil,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
@@ -60,6 +80,8 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
             value: Parser.multiselectValue(sources: sources, value: value),
             onChange: onChange,
             in: range,
+            step: step,
+            defaultSliderValue: defaultSliderValue,
             errorMessage: errorMessage,
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing
@@ -72,7 +94,7 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
                 Slider(
                     value: $number,
                     in: range,
-                    step: 0.5,
+                    step: resolvedStep,
                     onEditingChanged: { isEditing in
                         if isEditing {
                             onBeginEditing()
@@ -83,7 +105,7 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
                 )
                 .controlSize(.mini)
                 .frame(minWidth: 80)
-                
+
                 TextField(
                     text: $text,
                     prompt: Text(title),
@@ -109,7 +131,7 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
                 .multilineTextAlignment(.leading)
                 .labelsHidden()
             }
-            
+
             if let errorMessage {
                 Text(errorMessage)
                     .font(.footnote)
@@ -118,13 +140,13 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
         }
         .onChange(of: value.value, initial: true) { oldValue, newValue in
             text = Parser.formatValue(newValue)
-            number = Parser.doubleValue(newValue)
+            number = resolvedSliderValue(for: newValue)
         }
         .onChange(of: text) { oldValue, newValue in
             guard newValue != oldValue else {
                 return
             }
-            
+
             switch Parser.parseValue(newValue) {
             case let .success(newValue):
                 if Parser.hasChanged(value.value, newValue) {
@@ -140,7 +162,7 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
             guard !newValue.isClose(to: oldValue, threshold: 1e-6) else {
                 return
             }
-            
+
             let parsedValue = Parser.fromDoubleValue(newValue, existing: value.value)
             if Parser.hasChanged(value.value, parsedValue) {
                 value.onChange(parsedValue)
@@ -158,7 +180,19 @@ public struct ValueSliderField<Parser: SliderFieldParser>: View {
     }
 }
 
-private extension ValueSliderField {
+private extension InlineSliderField {
+    var resolvedStep: Double {
+        step ?? (range.upperBound - range.lowerBound) / 200.0
+    }
+
+    func resolvedSliderValue(for parserValue: Parser.Value) -> Double {
+        let parsed = Parser.doubleValue(parserValue)
+        if parsed.isFinite {
+            return parsed
+        }
+        return defaultSliderValue ?? range.lowerBound
+    }
+
     func beginTextEditingIfNecessary() {
         guard isFocused && !isTextEditing else {
             return
@@ -166,7 +200,7 @@ private extension ValueSliderField {
         isTextEditing = true
         onBeginEditing()
     }
-    
+
     func endTextEditingIfNecessary() {
         guard isTextEditing else {
             return
