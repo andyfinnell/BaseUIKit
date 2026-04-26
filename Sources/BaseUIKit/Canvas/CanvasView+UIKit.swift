@@ -1,34 +1,40 @@
 #if canImport(UIKit)
 import UIKit
+import BaseKit
 import SwiftUI
 
 public struct CanvasView<ID: Hashable & Sendable>: UIViewRepresentable {
     private let database: CanvasDatabase<ID>
     private let onDimensionsChanged: ((CanvasViewDimensions) -> Void)?
     private let onEvent: ((Event) -> Void)?
-    
+    private let contextMenu: (@MainActor (Point) -> BaseUIKit.ContextMenu?)?
+
     public init(
         database: CanvasDatabase<ID>,
         onDimensionsChanged: ((CanvasViewDimensions) -> Void)? = nil,
-        onEvent: ((Event) -> Void)? = nil
+        onEvent: ((Event) -> Void)? = nil,
+        contextMenu: (@MainActor (Point) -> BaseUIKit.ContextMenu?)? = nil
     ) {
         self.database = database
         self.onDimensionsChanged = onDimensionsChanged
         self.onEvent = onEvent
+        self.contextMenu = contextMenu
     }
-    
+
     public func makeUIView(context: Context) -> CanvasViewImpl<ID> {
         CanvasViewImpl(
             database: database,
             onDimensionsChanged: onDimensionsChanged,
-            onEvent: onEvent
+            onEvent: onEvent,
+            contextMenuProvider: contextMenu
         )
     }
-    
+
     public func updateUIView(_ nsView: CanvasViewImpl<ID>, context: Context) {
         nsView.db = database
         nsView.onDimensionsChanged = onDimensionsChanged
         nsView.onEvent = onEvent
+        nsView.contextMenuProvider = contextMenu
     }
 }
 
@@ -37,17 +43,20 @@ public struct CanvasScrollView<ID: Hashable & Sendable>: UIViewRepresentable {
     private let onDimensionsChanged: ((CanvasViewDimensions) -> Void)?
     private let onEvent: ((Event) -> Void)?
     private let onScrollPositionChanged: ((CGPoint) -> Void)?
+    private let contextMenu: (@MainActor (Point) -> BaseUIKit.ContextMenu?)?
 
     public init(
         database: CanvasDatabase<ID>,
         onDimensionsChanged: ((CanvasViewDimensions) -> Void)? = nil,
         onEvent: ((Event) -> Void)? = nil,
-        onScrollPositionChanged: ((CGPoint) -> Void)? = nil
+        onScrollPositionChanged: ((CGPoint) -> Void)? = nil,
+        contextMenu: (@MainActor (Point) -> BaseUIKit.ContextMenu?)? = nil
     ) {
         self.database = database
         self.onDimensionsChanged = onDimensionsChanged
         self.onEvent = onEvent
         self.onScrollPositionChanged = onScrollPositionChanged
+        self.contextMenu = contextMenu
     }
 
     public func makeUIView(context: Context) -> CanvasScrollViewImpl<ID> {
@@ -55,15 +64,17 @@ public struct CanvasScrollView<ID: Hashable & Sendable>: UIViewRepresentable {
             database: database,
             onDimensionsChanged: onDimensionsChanged,
             onEvent: onEvent,
-            onScrollPositionChanged: onScrollPositionChanged
+            onScrollPositionChanged: onScrollPositionChanged,
+            contextMenuProvider: contextMenu
         )
     }
-    
+
     public func updateUIView(_ nsView: CanvasScrollViewImpl<ID>, context: Context) {
         nsView.database = database
         nsView.onDimensionsChanged = onDimensionsChanged
         nsView.onEvent = onEvent
         nsView.onScrollPositionChanged = onScrollPositionChanged
+        nsView.contextMenuProvider = contextMenu
     }
 }
 

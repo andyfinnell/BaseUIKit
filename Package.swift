@@ -28,7 +28,7 @@ let package = Package(
                 .product(name: "BaseKit", package: "BaseKit")
             ],
             resources: [
-                .copy("Resources")
+                .process("Resources")
             ]
         ),
         .testTarget(

@@ -44,8 +44,7 @@ private extension Cursor {
     static func makePenClosePathCursor() -> NSCursor {
         guard let url = Bundle.module.url(
             forResource: "pen_close_path@2x",
-            withExtension: "png",
-            subdirectory: "Resources"
+            withExtension: "png"
         ) else {
             return NSCursor.crosshair
         }
@@ -58,7 +57,6 @@ private extension Cursor {
         guard let url = Bundle.module.url(
             forResource: "pen_add_point@2x",
             withExtension: "png",
-            subdirectory: "Resources"
         ) else {
             return NSCursor.crosshair
         }
@@ -70,8 +68,7 @@ private extension Cursor {
     static func makePenRemovePointCursor() -> NSCursor {
         guard let url = Bundle.module.url(
             forResource: "pen_remove_point@2x",
-            withExtension: "png",
-            subdirectory: "Resources"
+            withExtension: "png"
         ) else {
             return NSCursor.crosshair
         }
@@ -83,8 +80,7 @@ private extension Cursor {
     static func makePenContinueCursor() -> NSCursor {
         guard let url = Bundle.module.url(
             forResource: "pen_continue@2x",
-            withExtension: "png",
-            subdirectory: "Resources"
+            withExtension: "png"
         ) else {
             return NSCursor.crosshair
         }
@@ -96,8 +92,7 @@ private extension Cursor {
     static func makePenConvertPointCursor() -> NSCursor {
         guard let url = Bundle.module.url(
             forResource: "pen_convert_point@2x",
-            withExtension: "png",
-            subdirectory: "Resources"
+            withExtension: "png"
         ) else {
             return NSCursor.crosshair
         }

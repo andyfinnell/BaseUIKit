@@ -11,13 +11,15 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: UIScrollView {
         database: CanvasDatabase<ID>,
         onDimensionsChanged: ((CanvasViewDimensions) -> Void)?,
         onEvent: ((Event) -> Void)?,
-        onScrollPositionChanged: ((CGPoint) -> Void)? = nil
+        onScrollPositionChanged: ((CGPoint) -> Void)? = nil,
+        contextMenuProvider: (@MainActor (Point) -> ContextMenu?)? = nil
     ) {
         self.onScrollPositionChanged = onScrollPositionChanged
         canvasView = CanvasViewImpl(
             database: database,
             onDimensionsChanged: onDimensionsChanged,
-            onEvent: onEvent
+            onEvent: onEvent,
+            contextMenuProvider: contextMenuProvider
         )
         super.init(frame: .zero)
         
@@ -51,7 +53,12 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: UIScrollView {
         get { canvasView.onEvent }
         set { canvasView.onEvent = newValue }
     }
-    
+
+    var contextMenuProvider: (@MainActor (Point) -> ContextMenu?)? {
+        get { canvasView.contextMenuProvider }
+        set { canvasView.contextMenuProvider = newValue }
+    }
+
     public override var bounds: CGRect {
         didSet {
             canvasView.visibleSize = bounds.size
@@ -99,10 +106,19 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: UIScrollView {
     }
 }
 
-public final class CanvasViewImpl<ID: Hashable & Sendable>: UIView {
+public final class CanvasViewImpl<ID: Hashable & Sendable>: UIView, UIContextMenuInteractionDelegate {
     private let database: Mutex<CanvasDatabase<ID>>
     var onDimensionsChanged: ((CanvasViewDimensions) -> Void)?
     var onEvent: ((Event) -> Void)?
+    /// Lazy: the `UIContextMenuInteraction` is only attached when a provider
+    /// is first set. NOTE: when pinch/two-finger-pan gestures are added (TODO
+    /// Phase 1), set up `require(toFail:)` between the long-press recognizer
+    /// owned by `UIContextMenuInteraction` and those new gestures so a quick
+    /// two-finger gesture isn't pre-empted by a long-press false-start.
+    var contextMenuProvider: (@MainActor (Point) -> ContextMenu?)? {
+        didSet { ensureContextMenuInteraction() }
+    }
+    private var contextMenuInteraction: UIContextMenuInteraction?
     private var primaryTouch: UITouch? = nil
     private var allTouches = Set<UITouch>()
 
@@ -124,16 +140,19 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: UIView {
     init(
         database: CanvasDatabase<ID>,
         onDimensionsChanged: ((CanvasViewDimensions) -> Void)?,
-        onEvent: ((Event) -> Void)?
+        onEvent: ((Event) -> Void)?,
+        contextMenuProvider: (@MainActor (Point) -> ContextMenu?)? = nil
     ) {
         self.database = Mutex(database)
         self.onDimensionsChanged = onDimensionsChanged
         self.onEvent = onEvent
+        self.contextMenuProvider = contextMenuProvider
         super.init(frame: .zero)
         database.setDelegate(self)
         isUserInteractionEnabled = true
         isMultipleTouchEnabled = true
         isExclusiveTouch = true
+        ensureContextMenuInteraction()
     }
 
     @available(*, unavailable)
@@ -233,6 +252,13 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: UIView {
         }
     }
     
+    private func ensureContextMenuInteraction() {
+        guard contextMenuProvider != nil, contextMenuInteraction == nil else { return }
+        let interaction = UIContextMenuInteraction(delegate: self)
+        addInteraction(interaction)
+        contextMenuInteraction = interaction
+    }
+
     public override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesCancelled(touches, with: event)
         
@@ -253,6 +279,21 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: UIView {
         } else {
             allTouches = newAllTouches
         }
+    }
+    
+    @objc public func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        configurationForMenuAtLocation location: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        guard let provider = contextMenuProvider else { return nil }
+        let canvasCG = db.convertViewToDocument(location)
+        let canvasLocation = Point(x: canvasCG.x, y: canvasCG.y)
+        guard let menuModel = provider(canvasLocation) else { return nil }
+        return UIContextMenuConfiguration(
+            identifier: nil,
+            previewProvider: nil,
+            actionProvider: { _ in UIMenu(contextMenu: menuModel) }
+        )
     }
 }
 

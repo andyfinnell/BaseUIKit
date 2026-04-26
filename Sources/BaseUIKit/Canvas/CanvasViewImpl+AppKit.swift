@@ -11,13 +11,15 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
         database: CanvasDatabase<ID>,
         onDimensionsChanged: ((CanvasViewDimensions) -> Void)?,
         onEvent: ((Event) -> Void)?,
-        onScrollPositionChanged: ((CGPoint) -> Void)? = nil
+        onScrollPositionChanged: ((CGPoint) -> Void)? = nil,
+        contextMenuProvider: (@MainActor (Point) -> ContextMenu?)? = nil
     ) {
         self.onScrollPositionChanged = onScrollPositionChanged
         canvasView = CanvasViewImpl(
             database: database,
             onDimensionsChanged: onDimensionsChanged,
-            onEvent: onEvent
+            onEvent: onEvent,
+            contextMenuProvider: contextMenuProvider
         )
         canvasView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -55,7 +57,12 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
         get { canvasView.onEvent }
         set { canvasView.onEvent = newValue }
     }
-    
+
+    var contextMenuProvider: (@MainActor (Point) -> ContextMenu?)? {
+        get { canvasView.contextMenuProvider }
+        set { canvasView.contextMenuProvider = newValue }
+    }
+
     public override var frame: CGRect {
         didSet {
             canvasView.visibleSize = frame.size
@@ -132,21 +139,25 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
         set { db.visibleOffset = newValue }
     }
     
+    var contextMenuProvider: (@MainActor (Point) -> ContextMenu?)?
+
     init(
         database: CanvasDatabase<ID>,
         onDimensionsChanged: ((CanvasViewDimensions) -> Void)?,
-        onEvent: ((Event) -> Void)?
+        onEvent: ((Event) -> Void)?,
+        contextMenuProvider: (@MainActor (Point) -> ContextMenu?)? = nil
     ) {
         self.database = Mutex(database)
         self.onDimensionsChanged = onDimensionsChanged
         self.onEvent = onEvent
+        self.contextMenuProvider = contextMenuProvider
         super.init(frame: .zero)
         database.setDelegate(self)
-        
+
         let trackingArea = makeTrackingArea()
         addTrackingArea(trackingArea)
         self.trackingArea = trackingArea
-        
+
         canDrawConcurrently = true
     }
     
@@ -258,6 +269,17 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
         if let e = makeEvent(from: event) {
             sendEvent(e)
         }
+    }
+
+    /// AppKit dispatches right-click, Control+click, and two-finger trackpad
+    /// click through `menu(for:)` before any of the right-mouse-down event
+    /// handlers. Returning a non-nil `NSMenu` displays it; returning nil
+    /// passes through.
+    public override func menu(for event: NSEvent) -> NSMenu? {
+        guard let provider = contextMenuProvider else { return nil }
+        let canvasLocation = documentLocation(for: event)
+        guard let menu = provider(canvasLocation) else { return nil }
+        return NSMenu(contextMenu: menu)
     }
     
     public override func keyDown(with event: NSEvent) {
