@@ -57,52 +57,78 @@ public struct OpacityFieldParser: SliderFieldParser {
 }
 
 public struct OpacityField: View {
+    /// Layout style for the slider. `.popover` (default) keeps the slider behind a tap-to-expand
+    /// button — best when inspector space is tight. `.inline` shows the slider always-visible
+    /// next to the text field — best when there's room for it (e.g. the Appearance panel's
+    /// dedicated opacity row).
+    public enum Style: Hashable, Sendable {
+        case popover
+        case inline
+    }
+
     private let value: SmartBind<Double, ExtraEmpty>
+    private let style: Style
     private let onBeginEditing: Callback<Void>
     private let onEndEditing: Callback<Void>
 
     public init(
         value: Double,
         onChange: @escaping (Double) -> Void,
+        style: Style = .popover,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.value = SmartBind(value, onChange)
+        self.style = style
         self.onBeginEditing = Callback(onBeginEditing)
         self.onEndEditing = Callback(onEndEditing)
     }
 
     public init(
         value: Binding<Double>,
+        style: Style = .popover,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
-        self.init(value: value.wrappedValue, onChange: { value.wrappedValue = $0 }, onBeginEditing: onBeginEditing, onEndEditing: onEndEditing)
+        self.init(value: value.wrappedValue, onChange: { value.wrappedValue = $0 }, style: style, onBeginEditing: onBeginEditing, onEndEditing: onEndEditing)
     }
 
     public init<C: RandomAccessCollection & Sendable>(
         sources: C,
         value: KeyPath<C.Element, Double> & Sendable,
         onChange: @escaping (Double) -> Void,
+        style: Style = .popover,
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
         self.init(
             value: OpacityFieldParser.multiselectValue(sources: sources, value: value),
             onChange: onChange,
+            style: style,
             onBeginEditing: onBeginEditing,
             onEndEditing: onEndEditing
         )
     }
 
     public var body: some View {
-        PopOverSliderField<OpacityFieldParser>(
-            "Opacity",
-            value: value,
-            in: 0...1,
-            onBeginEditing: onBeginEditing,
-            onEndEditing: onEndEditing
-        )
+        switch style {
+        case .popover:
+            PopOverSliderField<OpacityFieldParser>(
+                "Opacity",
+                value: value,
+                in: 0...1,
+                onBeginEditing: onBeginEditing,
+                onEndEditing: onEndEditing
+            )
+        case .inline:
+            InlineSliderField<OpacityFieldParser>(
+                "Opacity",
+                value: value,
+                in: 0...1,
+                onBeginEditing: onBeginEditing,
+                onEndEditing: onEndEditing
+            )
+        }
     }
 }
 

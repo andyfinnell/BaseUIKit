@@ -63,6 +63,26 @@ public struct InlineSliderField<Parser: SliderFieldParser>: View {
         )
     }
 
+    init(
+        _ title: String,
+        value: SmartBind<Parser.Value, ExtraEmpty>,
+        in range: ClosedRange<Double>,
+        step: Double? = nil,
+        defaultSliderValue: Double? = nil,
+        errorMessage: String? = nil,
+        onBeginEditing: Callback<Void>,
+        onEndEditing: Callback<Void>
+    ) {
+        self.title = title
+        self.value = value
+        self.range = range
+        self.step = step
+        self.defaultSliderValue = defaultSliderValue
+        self.onBeginEditing = onBeginEditing
+        self.onEndEditing = onEndEditing
+        self.errorMessage = errorMessage
+    }
+
     public init<C: RandomAccessCollection & Sendable>(
         _ title: String,
         sources: C,
