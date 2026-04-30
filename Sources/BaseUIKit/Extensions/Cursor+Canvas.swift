@@ -38,7 +38,20 @@ private extension Cursor {
         case .penContinue: Self.makePenContinueCursor()
         case .penConvertPoint: Self.makePenConvertPointCursor()
         case .notAllowed: NSCursor.operationNotAllowed
+        case .rotate: Self.makeRotateCursor()
         }
+    }
+
+    static func makeRotateCursor() -> NSCursor {
+        guard let url = Bundle.module.url(
+            forResource: "cursor_rotate@2x",
+            withExtension: "png"
+        ) else {
+            return NSCursor.crosshair
+        }
+        let image = NSImage(contentsOf: url) ?? NSImage()
+        image.size = NSSize(width: 21, height: 21)
+        return NSCursor(image: image, hotSpot: NSPoint(x: 10.5, y: 10.5))
     }
 
     static func makePenClosePathCursor() -> NSCursor {
