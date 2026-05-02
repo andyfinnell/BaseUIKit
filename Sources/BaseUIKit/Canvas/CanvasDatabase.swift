@@ -46,6 +46,12 @@ public final class CanvasDatabase<ID: Hashable & Sendable>: Sendable {
             locked_convertViewToDocument(&$0, pointInViewCoords)
         }
     }
+
+    public func convertDocumentToView(_ pointInDocumentCoords: CGPoint) -> CGPoint {
+        memberData.withLock {
+            locked_convertDocumentToView(&$0, pointInDocumentCoords)
+        }
+    }
     
     @MainActor
     func setDelegate(_ delegate: CanvasCoreViewDelegate?) {
@@ -483,6 +489,11 @@ private extension CanvasDatabase {
     func locked_convertViewToDocument(_ memberData: inout MemberData, _ rectInViewCoords: CGRect) -> CGRect {
         rectInViewCoords.applying(locked_transform(&memberData).inverted())
             .applying(locked_contentAffineTransform(&memberData).inverted())
+    }
+
+    func locked_convertDocumentToView(_ memberData: inout MemberData, _ pointInDocumentCoords: CGPoint) -> CGPoint {
+        pointInDocumentCoords.applying(locked_contentAffineTransform(&memberData))
+            .applying(locked_transform(&memberData))
     }
 
     func locked_allLayers(_ memberData: inout MemberData, including predicate: (ID) -> Bool) -> [Layer<ID>] {
