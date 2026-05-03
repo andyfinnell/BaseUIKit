@@ -36,9 +36,7 @@ public final class CanvasDatabase<ID: Hashable & Sendable>: Sendable {
             locked_update(&$0, canvas, invalidates: &invalidates)
             return (invalidates, $0.delegate)
         }
-        Task { @MainActor in
-            delegate.invalidate(invalidates)
-        }
+        dispatchInvalidations(invalidates, to: delegate)
     }
         
     public func convertViewToDocument(_ pointInViewCoords: CGPoint) -> CGPoint {
@@ -79,9 +77,7 @@ public final class CanvasDatabase<ID: Hashable & Sendable>: Sendable {
             }
             return (invalidates, $0.delegate)
         }
-        Task { @MainActor in
-            delegate.invalidate(invalidates)
-        }
+        dispatchInvalidations(invalidates, to: delegate)
     }
     
     public var visibleSize: CGSize {
@@ -98,18 +94,12 @@ public final class CanvasDatabase<ID: Hashable & Sendable>: Sendable {
             }
             return (invalidates, $0.delegate)
         }
-        Task { @MainActor in
-            delegate.invalidate(invalidates)
-        }
+        dispatchInvalidations(invalidates, to: delegate)
     }
-    
+
     public var visibleOffset: CGPoint {
         get { memberData.withLock { $0.visibleOffset } }
-        set {
-            memberData.withLock {
-                $0.visibleOffset = newValue
-            }
-        }
+        set { setVisibleOffset(newValue) }
     }
     
     var contentSize: CGSize {
@@ -143,9 +133,7 @@ public extension CanvasDatabase {
             locked_perform(&$0, command, invalidates: &invalidates)
             return (invalidates, $0.delegate)
         }
-        Task { @MainActor in
-            delegate.invalidate(invalidates)
-        }
+        dispatchInvalidations(invalidates, to: delegate)
     }
     
     func layers(_ query: CanvasQuery, including predicate: (ID) -> Bool) -> [Layer<ID>] {
@@ -241,6 +229,28 @@ public extension CanvasDatabase {
             $0.objectById[layerID]?.typographicBounds.map { Rect($0) }
         }
     }
+    
+    /// Returns an observable proxy that tracks the given layer's
+    /// view-space bounds. Multiple callers asking for the same `id`
+    /// share the same proxy. The canvas keeps the proxy current as long
+    /// as the caller retains it; release the reference (let it
+    /// deallocate) to stop tracking.
+    ///
+    /// If no layer is currently registered for `id`, the proxy is
+    /// returned with `viewBounds == nil` and will populate when the
+    /// layer appears.
+    @MainActor
+    func layerProxy(for id: ID) -> CanvasLayerProxy<ID> {
+        memberData.withLock { memberData in
+            if let existing = memberData.proxies[id]?.value {
+                return existing
+            }
+            let bounds = locked_computeProxyViewBounds(&memberData, for: id)
+            let proxy = CanvasLayerProxy<ID>(id: id, viewBounds: bounds)
+            memberData.proxies[id] = WeakCanvasLayerProxy(value: proxy)
+            return proxy
+        }
+    }
 }
 
 #if os(macOS)
@@ -281,6 +291,26 @@ private extension CanvasDatabase {
         var cursor = BaseUIKit.Cursor.default
         var liveZoom: Double = 1.0
         var delegate = Delegate()
+        /// Weakly-held layer proxies keyed by ID. Populated by
+        /// `layerProxy(for:)` and refreshed on each invalidate dispatch.
+        /// Dead entries are swept on refresh.
+        var proxies: [ID: WeakCanvasLayerProxy<ID>] = [:]
+    }
+    
+    func setVisibleOffset(_ visibleOffset: CGPoint) {
+        let didChange = memberData.withLock {
+            let changed = $0.visibleOffset != visibleOffset
+            $0.visibleOffset = visibleOffset
+            return changed
+        }
+        // Scroll changes don't go through the invalidate dispatch
+        // (the system scroll view handles redraw), but proxies need
+        // to track the new viewport.
+        if didChange {
+            Task { @MainActor in
+                self.refreshLayerProxies()
+            }
+        }
     }
     
     func locked_textIndex(_ memberData: inout MemberData, at point: Point, in layerID: ID) -> TextPosition? {
@@ -494,6 +524,37 @@ private extension CanvasDatabase {
     func locked_convertDocumentToView(_ memberData: inout MemberData, _ pointInDocumentCoords: CGPoint) -> CGPoint {
         pointInDocumentCoords.applying(locked_contentAffineTransform(&memberData))
             .applying(locked_transform(&memberData))
+    }
+
+    func locked_convertDocumentToView(_ memberData: inout MemberData, _ rectInDocumentCoords: CGRect) -> CGRect {
+        rectInDocumentCoords.applying(locked_contentAffineTransform(&memberData))
+            .applying(locked_transform(&memberData))
+    }
+
+    /// Computes the outer view-space bounds of the layer at `id`, used
+    /// by `CanvasLayerProxy`. For a regular layer, this is its
+    /// `willDrawRect` (decorations included) projected through the
+    /// content + viewport transforms. For a `ComputedLayer`, it's the
+    /// union of all generated sub-objects' projected rects. Returns nil
+    /// if no layer is currently registered for `id`.
+    func locked_computeProxyViewBounds(_ memberData: inout MemberData, for id: ID) -> Rect? {
+        let documentRect: CGRect
+        if let object = memberData.objectById[id] {
+            documentRect = object.willDrawRect
+        } else if let generated = memberData.generatedLayersByComputedID[id] {
+            var union: CGRect? = nil
+            for subID in generated.layerIDs {
+                guard let object = memberData.objectById[subID] else { continue }
+                let r = object.willDrawRect
+                union = union.map { $0.union(r) } ?? r
+            }
+            guard let resolved = union else { return nil }
+            documentRect = resolved
+        } else {
+            return nil
+        }
+        let viewRect = locked_convertDocumentToView(&memberData, documentRect)
+        return Rect(viewRect)
     }
 
     func locked_allLayers(_ memberData: inout MemberData, including predicate: (ID) -> Bool) -> [Layer<ID>] {
@@ -1045,9 +1106,42 @@ private extension CanvasDatabase {
             }
             return (invalidates, memberData.delegate)
         }
+        dispatchInvalidations(invalidates, to: delegate)
+    }
+
+    /// Fans invalidations out to the view delegate and refreshes any
+    /// live layer proxies on the next MainActor turn. All canvas-mutation
+    /// paths funnel through here.
+    func dispatchInvalidations(_ invalidates: Set<CanvasInvalidation>, to delegate: Delegate) {
         Task { @MainActor in
+            self.refreshLayerProxies()
             delegate.invalidate(invalidates)
         }
     }
 
+    /// Walks live proxies, recomputes their `viewBounds` from the
+    /// current canvas state, and sweeps deallocated entries. Called from
+    /// every invalidate dispatch (layer mutations, viewport size /
+    /// content changes) and from the `visibleOffset` setter (scroll).
+    @MainActor
+    func refreshLayerProxies() {
+        // Collect live proxies + their freshly-computed bounds inside
+        // the lock; apply the assignments outside so observers can re-
+        // enter the database without deadlocking.
+        let updates: [(CanvasLayerProxy<ID>, Rect?)] = memberData.withLock { memberData in
+            var alive: [ID: WeakCanvasLayerProxy<ID>] = [:]
+            var pending: [(CanvasLayerProxy<ID>, Rect?)] = []
+            for (id, weak) in memberData.proxies {
+                guard let proxy = weak.value else { continue }
+                let bounds = locked_computeProxyViewBounds(&memberData, for: id)
+                pending.append((proxy, bounds))
+                alive[id] = weak
+            }
+            memberData.proxies = alive
+            return pending
+        }
+        for (proxy, bounds) in updates where proxy.viewBounds != bounds {
+            proxy.viewBounds = bounds
+        }
+    }
 }
