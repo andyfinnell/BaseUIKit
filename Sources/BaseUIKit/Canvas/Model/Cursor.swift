@@ -22,4 +22,5 @@ public enum Cursor: Sendable, Hashable {
     case penConvertPoint
     case notAllowed
     case rotate
+    case disappearingItem
 }
