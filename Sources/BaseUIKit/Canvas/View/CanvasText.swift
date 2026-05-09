@@ -713,39 +713,28 @@ private extension ProtectedCoreText {
         width: CGFloat,
         in context: CGContext
     ) -> [RenderedTextRun] {
-        // Create the frame
-        let bounds = queued_framesetterBounds(fromRuns: runs, autosize: autosize, width: width)
-        let boundsPath = CGMutablePath(rect: bounds, transform: nil)
-        let frame = CTFramesetterCreateFrame(
-            queued_framesetter(fromRuns: runs),
-            CFRange(location: 0, length: 0),
-            boundsPath,
-            nil
-        )
-
-        // Iterate the lines
-        let frameOrigin = CGPoint.zero
-        let lines = frame.lines
-        guard !lines.isEmpty else {
-            return []
-        }
+        let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
+        guard !frame.lines.isEmpty else { return [] }
 
         var renderedRuns = [RenderedTextRun]()
-        for (line, lineOrigin) in zip(lines, frame.lineOrigins) {
-            var runOrigin = frameOrigin + lineOrigin
+        for (line, lineOrigin) in zip(frame.lines, frame.lineOrigins) {
+            var runOrigin = lineOrigin
             for run in line.runs {
                 let typographicBounds = run.typographicBounds
-                let typographicRunBounds = CGRect(x: runOrigin.x,
-                                       y: runOrigin.y,
-                                       width: typographicBounds.width,
-                                       height: typographicBounds.ascent + typographicBounds.descent)
-                let renderedRun = RenderedTextRun(
-                    text: queued_substring(fromRuns: runs, in: run.range),
-                    attributes: queued_attributes(from: run.attributes),
-                    bounds: typographicRunBounds
+                let typographicRunBounds = CGRect(
+                    x: runOrigin.x,
+                    y: runOrigin.y,
+                    width: typographicBounds.width,
+                    height: typographicBounds.ascent + typographicBounds.descent
+                )
+                renderedRuns.append(
+                    RenderedTextRun(
+                        text: queued_substring(fromRuns: runs, in: run.range),
+                        attributes: queued_attributes(from: run.attributes),
+                        bounds: typographicRunBounds
+                    )
                 )
                 runOrigin.x += typographicBounds.width
-                renderedRuns.append(renderedRun)
             }
         }
 
@@ -766,6 +755,82 @@ private extension ProtectedCoreText {
             boundsPath,
             nil
         )
+    }
+
+    /// One step of `queued_walkRuns`: a CT-level run paired with the
+    /// SVG-level `TextRun` index and the cumulative dx/dy that should be
+    /// added to glyph positions.
+    struct WalkedRun {
+        let line: CTLine
+        let lineOrigin: CGPoint
+        let run: CTRun
+        let runIndex: Int
+        let accumulatedDx: CGFloat
+        let accumulatedDy: CGFloat
+    }
+
+    /// Walks the lines and runs of `frame`, accumulating SVG-style dx/dy
+    /// offsets per `TextRun` boundary, and invokes `body` once per CTRun.
+    /// Centralizes the iteration pattern shared by `queued_cgPath`,
+    /// `queued_drawColorGlyphs`, `queued_perRunPaths`, and
+    /// `queued_perRunTextDecorationPaths`.
+    func queued_walkRuns(
+        in frame: CTFrame,
+        runs: [TextRun],
+        body: (WalkedRun) -> Void
+    ) {
+        let runRanges = queued_runRanges(for: runs)
+        var accDx: CGFloat = 0
+        var accDy: CGFloat = 0
+        var lastSeenRunIndex = -1
+
+        for (line, lineOrigin) in zip(frame.lines, frame.lineOrigins) {
+            for run in line.runs {
+                let runIndex = queued_textRunIndex(for: run.range, in: runRanges)
+                if runIndex != lastSeenRunIndex {
+                    for i in (lastSeenRunIndex + 1)...runIndex
+                    where i >= 0 && i < runs.count {
+                        accDx += runs[i].dx
+                        accDy += runs[i].dy
+                    }
+                    lastSeenRunIndex = runIndex
+                }
+                body(
+                    WalkedRun(
+                        line: line,
+                        lineOrigin: lineOrigin,
+                        run: run,
+                        runIndex: runIndex,
+                        accumulatedDx: accDx,
+                        accumulatedDy: accDy
+                    )
+                )
+            }
+        }
+    }
+
+    /// Appends every renderable glyph in `run` to `path`, positioned at
+    /// `lineOrigin + glyphPosition + (accDx, accDy)`. Glyphs whose font
+    /// can't produce an outline (color-bitmap fonts like Apple Color
+    /// Emoji) are silently skipped — they're handled by
+    /// `queued_drawColorGlyphs` instead.
+    func queued_appendGlyphPaths(
+        of run: CTRun,
+        lineOrigin: CGPoint,
+        accDx: CGFloat,
+        accDy: CGFloat,
+        into path: CGMutablePath
+    ) {
+        let coreFont = run.font as CTFont
+        for (glyph, position) in zip(run.glyphs, run.positions) {
+            var transform = CGAffineTransform(
+                translationX: lineOrigin.x + position.x + accDx,
+                y: lineOrigin.y + position.y + accDy
+            )
+            guard let glyphPath = CTFontCreatePathForGlyph(coreFont, glyph, &transform)
+            else { continue }
+            path.addPath(glyphPath)
+        }
     }
 
     func queued_textRects(for range: TextRange, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> [CGRect] {
@@ -1037,63 +1102,20 @@ private extension ProtectedCoreText {
         if let cgPathCache {
             return cgPathCache
         }
-        // Create the frame
-        let bounds = queued_framesetterBounds(fromRuns: runs, autosize: autosize, width: width)
-        let boundsPath = CGMutablePath(rect: bounds, transform: nil)
-        let frame = CTFramesetterCreateFrame(
-            queued_framesetter(fromRuns: runs),
-            CFRange(location: 0, length: 0),
-            boundsPath,
-            nil
-        )
-
-        // Iterate the lines
+        let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
         let finalPath = CGMutablePath()
-        let frameOrigin = CGPoint.zero
-        let lines = frame.lines
 
-        guard !lines.isEmpty else {
-            return finalPath
-        }
-
-        let runRanges = queued_runRanges(for: runs)
-        var accDx: CGFloat = 0
-        var accDy: CGFloat = 0
-        var lastSeenRunIndex = -1
-
-        for (line, lineOrigin) in zip(lines, frame.lineOrigins) {
-            for run in line.runs {
-                let runIndex = queued_textRunIndex(for: run.range, in: runRanges)
-                if runIndex != lastSeenRunIndex {
-                    for i in (lastSeenRunIndex + 1)...runIndex where i >= 0 && i < runs.count {
-                        accDx += runs[i].dx
-                        accDy += runs[i].dy
-                    }
-                    lastSeenRunIndex = runIndex
-                }
-
-                let coreFont = run.font as CTFont
-                for (glyph, position) in zip(run.glyphs, run.positions) {
-                    let finalPosition = CGPoint(
-                        x: frameOrigin.x + lineOrigin.x + position.x + accDx,
-                        y: frameOrigin.y + lineOrigin.y + position.y + accDy
-                    )
-                    var glyphTransform = CGAffineTransform(
-                        translationX: finalPosition.x,
-                        y: finalPosition.y
-                    )
-                    guard let glyphPath = CTFontCreatePathForGlyph(coreFont,
-                                                             glyph,
-                                                                   &glyphTransform) else {
-                        continue
-                    }
-                    finalPath.addPath(glyphPath)
-                }
-            }
+        queued_walkRuns(in: frame, runs: runs) { walked in
+            queued_appendGlyphPaths(
+                of: walked.run,
+                lineOrigin: walked.lineOrigin,
+                accDx: walked.accumulatedDx,
+                accDy: walked.accumulatedDy,
+                into: finalPath
+            )
         }
 
         cgPathCache = finalPath
-
         return finalPath
     }
 
@@ -1104,18 +1126,8 @@ private extension ProtectedCoreText {
         bounds: CGRect,
         into context: CGContext
     ) {
-        let framesetterBounds = queued_framesetterBounds(
-            fromRuns: runs, autosize: autosize, width: width)
-        let boundsPath = CGMutablePath(rect: framesetterBounds, transform: nil)
-        let frame = CTFramesetterCreateFrame(
-            queued_framesetter(fromRuns: runs),
-            CFRange(location: 0, length: 0),
-            boundsPath,
-            nil
-        )
-
-        let lines = frame.lines
-        guard !lines.isEmpty else { return }
+        let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
+        guard !frame.lines.isEmpty else { return }
 
         context.saveGState()
         // Match `setPath`'s y-flip: CoreText's frame uses y-up, the canvas
@@ -1123,35 +1135,17 @@ private extension ProtectedCoreText {
         context.translateBy(x: 0, y: bounds.height)
         context.scaleBy(x: 1, y: -1)
 
-        let runRanges = queued_runRanges(for: runs)
-        var accDx: CGFloat = 0
-        var accDy: CGFloat = 0
-        var lastSeenRunIndex = -1
-
-        for (line, lineOrigin) in zip(lines, frame.lineOrigins) {
-            for run in line.runs {
-                let runIndex = queued_textRunIndex(for: run.range, in: runRanges)
-                if runIndex != lastSeenRunIndex {
-                    for i in (lastSeenRunIndex + 1)...runIndex
-                    where i >= 0 && i < runs.count {
-                        accDx += runs[i].dx
-                        accDy += runs[i].dy
-                    }
-                    lastSeenRunIndex = runIndex
-                }
-
-                let coreFont = run.font as CTFont
-                guard runHasColorGlyphs(run, font: coreFont) else { continue }
-
-                // CTRunDraw renders glyphs at their per-glyph CTRun positions
-                // relative to the context's text position. Setting it to the
-                // line origin places the run at the right line.
-                context.textPosition = CGPoint(
-                    x: lineOrigin.x + accDx,
-                    y: lineOrigin.y + accDy
-                )
-                CTRunDraw(run, context, CFRange(location: 0, length: 0))
-            }
+        queued_walkRuns(in: frame, runs: runs) { walked in
+            let coreFont = walked.run.font as CTFont
+            guard runHasColorGlyphs(walked.run, font: coreFont) else { return }
+            // CTRunDraw renders glyphs at their per-glyph CTRun positions
+            // relative to the context's text position. Setting it to the
+            // line origin places the run at the right line.
+            context.textPosition = CGPoint(
+                x: walked.lineOrigin.x + walked.accumulatedDx,
+                y: walked.lineOrigin.y + walked.accumulatedDy
+            )
+            CTRunDraw(walked.run, context, CFRange(location: 0, length: 0))
         }
 
         context.restoreGState()
@@ -1297,58 +1291,20 @@ private extension ProtectedCoreText {
 
     /// Generates per-TextRun glyph paths with dx/dy offsets applied.
     func queued_perRunPaths(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> [RunPathEntry] {
-        let bounds = queued_framesetterBounds(fromRuns: runs, autosize: autosize, width: width)
-        let boundsPath = CGMutablePath(rect: bounds, transform: nil)
-        let frame = CTFramesetterCreateFrame(
-            queued_framesetter(fromRuns: runs),
-            CFRange(location: 0, length: 0),
-            boundsPath,
-            nil
-        )
+        let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
+        guard !frame.lines.isEmpty else { return [] }
 
-        let lines = frame.lines
-        guard !lines.isEmpty else { return [] }
-
-        let runRanges = queued_runRanges(for: runs)
-        let frameOrigin = CGPoint.zero
-
-        // Track accumulated dx/dy offsets (SVG dx/dy is cumulative)
-        var accDx: CGFloat = 0
-        var accDy: CGFloat = 0
-        var lastSeenRunIndex = -1
         var pathsByRun = [Int: CGMutablePath]()
-
-        for (line, lineOrigin) in zip(lines, frame.lineOrigins) {
-            for ctRun in line.runs {
-                let runIndex = queued_textRunIndex(for: ctRun.range, in: runRanges)
-
-                // Accumulate dx/dy when we enter a new TextRun
-                if runIndex != lastSeenRunIndex {
-                    for i in (lastSeenRunIndex + 1)...runIndex where i >= 0 && i < runs.count {
-                        accDx += runs[i].dx
-                        accDy += runs[i].dy
-                    }
-                    lastSeenRunIndex = runIndex
-                }
-
-                let path = pathsByRun[runIndex] ?? CGMutablePath()
-                let coreFont = ctRun.font as CTFont
-                for (glyph, position) in zip(ctRun.glyphs, ctRun.positions) {
-                    let finalPosition = CGPoint(
-                        x: frameOrigin.x + lineOrigin.x + position.x + accDx,
-                        y: frameOrigin.y + lineOrigin.y + position.y + accDy
-                    )
-                    var glyphTransform = CGAffineTransform(
-                        translationX: finalPosition.x,
-                        y: finalPosition.y
-                    )
-                    guard let glyphPath = CTFontCreatePathForGlyph(coreFont, glyph, &glyphTransform) else {
-                        continue
-                    }
-                    path.addPath(glyphPath)
-                }
-                pathsByRun[runIndex] = path
-            }
+        queued_walkRuns(in: frame, runs: runs) { walked in
+            let path = pathsByRun[walked.runIndex] ?? CGMutablePath()
+            queued_appendGlyphPaths(
+                of: walked.run,
+                lineOrigin: walked.lineOrigin,
+                accDx: walked.accumulatedDx,
+                accDy: walked.accumulatedDy,
+                into: path
+            )
+            pathsByRun[walked.runIndex] = path
         }
 
         return pathsByRun
@@ -1359,60 +1315,40 @@ private extension ProtectedCoreText {
     /// Generates per-TextRun text decoration paths (underline, overline, line-through).
     func queued_perRunTextDecorationPaths(fromRuns runs: [TextRun], defaultLines: TextDecorationLine, autosize: Bool, width: CGFloat) -> [RunPathEntry] {
         let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
-        let ctLines = frame.lines
-        let lineOrigins = frame.lineOrigins
-        guard !ctLines.isEmpty else { return [] }
+        guard !frame.lines.isEmpty else { return [] }
 
-        let runRanges = queued_runRanges(for: runs)
-        let frameOrigin = CGPoint.zero
-
-        var accDx: CGFloat = 0
-        var accDy: CGFloat = 0
-        var lastSeenRunIndex = -1
         var pathsByRun = [Int: CGMutablePath]()
+        queued_walkRuns(in: frame, runs: runs) { walked in
+            let decoLines = runs[walked.runIndex].textDecorationLines ?? defaultLines
+            guard !decoLines.isEmpty else { return }
 
-        for (line, lineOrigin) in zip(ctLines, lineOrigins) {
-            for ctRun in line.runs {
-                let runIndex = queued_textRunIndex(for: ctRun.range, in: runRanges)
+            let font = walked.run.font as CTFont
+            let ascent = CTFontGetAscent(font)
+            let underlinePosition = CTFontGetUnderlinePosition(font)
+            let underlineThickness = max(CTFontGetUnderlineThickness(font), 1.0)
+            let xHeight = CTFontGetXHeight(font)
+            let runWidth = walked.run.typographicBounds.width
 
-                if runIndex != lastSeenRunIndex {
-                    for i in (lastSeenRunIndex + 1)...runIndex where i >= 0 && i < runs.count {
-                        accDx += runs[i].dx
-                        accDy += runs[i].dy
-                    }
-                    lastSeenRunIndex = runIndex
-                }
+            let originX =
+                walked.lineOrigin.x + (walked.run.positions.first?.x ?? 0) + walked.accumulatedDx
+            let baselineY = walked.lineOrigin.y + walked.accumulatedDy
 
-                let decoLines = runs[runIndex].textDecorationLines ?? defaultLines
-                guard !decoLines.isEmpty else { continue }
+            let path = pathsByRun[walked.runIndex] ?? CGMutablePath()
 
-                let font = ctRun.font as CTFont
-                let ascent = CTFontGetAscent(font)
-                let underlinePosition = CTFontGetUnderlinePosition(font)
-                let underlineThickness = max(CTFontGetUnderlineThickness(font), 1.0)
-                let xHeight = CTFontGetXHeight(font)
-                let runWidth = ctRun.typographicBounds.width
-
-                let originX = frameOrigin.x + lineOrigin.x + (ctRun.positions.first?.x ?? 0) + accDx
-                let baselineY = frameOrigin.y + lineOrigin.y + accDy
-
-                let path = pathsByRun[runIndex] ?? CGMutablePath()
-
-                if decoLines.contains(.underline) {
-                    let y = baselineY + underlinePosition - underlineThickness / 2.0
-                    path.addRect(CGRect(x: originX, y: y, width: runWidth, height: underlineThickness))
-                }
-                if decoLines.contains(.overline) {
-                    let y = baselineY + ascent - underlineThickness / 2.0
-                    path.addRect(CGRect(x: originX, y: y, width: runWidth, height: underlineThickness))
-                }
-                if decoLines.contains(.lineThrough) {
-                    let y = baselineY + xHeight / 2.0 - underlineThickness / 2.0
-                    path.addRect(CGRect(x: originX, y: y, width: runWidth, height: underlineThickness))
-                }
-
-                pathsByRun[runIndex] = path
+            if decoLines.contains(.underline) {
+                let y = baselineY + underlinePosition - underlineThickness / 2.0
+                path.addRect(CGRect(x: originX, y: y, width: runWidth, height: underlineThickness))
             }
+            if decoLines.contains(.overline) {
+                let y = baselineY + ascent - underlineThickness / 2.0
+                path.addRect(CGRect(x: originX, y: y, width: runWidth, height: underlineThickness))
+            }
+            if decoLines.contains(.lineThrough) {
+                let y = baselineY + xHeight / 2.0 - underlineThickness / 2.0
+                path.addRect(CGRect(x: originX, y: y, width: runWidth, height: underlineThickness))
+            }
+
+            pathsByRun[walked.runIndex] = path
         }
 
         return pathsByRun
