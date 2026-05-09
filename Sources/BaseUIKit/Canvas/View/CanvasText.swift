@@ -314,6 +314,17 @@ private extension CanvasText {
             decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
         }
 
+        // Color-bitmap glyphs (emoji) don't have outlines, so they're absent
+        // from the path-based render above. Draw them via CoreText's native
+        // `CTRunDraw` so they show up.
+        coreText.drawColorGlyphs(
+            fromRuns: memberData.runs,
+            autosize: memberData.autosize,
+            width: memberData.width,
+            bounds: bounds,
+            into: context
+        )
+
         if !memberData.textDecorationLines.isEmpty {
             let linePath = coreText.textDecorationPath(
                 memberData.textDecorationLines,
@@ -342,6 +353,16 @@ private extension CanvasText {
                 decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
             }
         }
+
+        // Per-run path generation drops color glyphs the same way the uniform
+        // path does. Catch them with the CoreText-native draw.
+        coreText.drawColorGlyphs(
+            fromRuns: memberData.runs,
+            autosize: memberData.autosize,
+            width: memberData.width,
+            bounds: bounds,
+            into: context
+        )
 
         // Draw text decoration lines per run
         let perRunDecorationPaths = coreText.perRunTextDecorationPaths(
@@ -564,6 +585,26 @@ private final class ProtectedCoreText: @unchecked Sendable {
         queue.sync {
             let cgPath = queued_cgPath(fromRuns: runs, autosize: autosize, width: width)
             return BezierPath(cgPath)
+        }
+    }
+
+    /// Draws color-bitmap glyphs (Apple Color Emoji and similar) into the
+    /// context. The path-based render in `bezierPath` silently drops these
+    /// because `CTFontCreatePathForGlyph` returns nil for color-glyph fonts;
+    /// this function fills that gap by walking the same line/run layout and
+    /// invoking `CTRunDraw` on every run whose font is a color font.
+    /// Outline runs are skipped here — they're already covered by the
+    /// path-based pass.
+    func drawColorGlyphs(
+        fromRuns runs: [TextRun],
+        autosize: Bool,
+        width: CGFloat,
+        bounds: CGRect,
+        into context: CGContext
+    ) {
+        queue.sync {
+            queued_drawColorGlyphs(
+                fromRuns: runs, autosize: autosize, width: width, bounds: bounds, into: context)
         }
     }
 
@@ -1054,6 +1095,79 @@ private extension ProtectedCoreText {
         cgPathCache = finalPath
 
         return finalPath
+    }
+
+    func queued_drawColorGlyphs(
+        fromRuns runs: [TextRun],
+        autosize: Bool,
+        width: CGFloat,
+        bounds: CGRect,
+        into context: CGContext
+    ) {
+        let framesetterBounds = queued_framesetterBounds(
+            fromRuns: runs, autosize: autosize, width: width)
+        let boundsPath = CGMutablePath(rect: framesetterBounds, transform: nil)
+        let frame = CTFramesetterCreateFrame(
+            queued_framesetter(fromRuns: runs),
+            CFRange(location: 0, length: 0),
+            boundsPath,
+            nil
+        )
+
+        let lines = frame.lines
+        guard !lines.isEmpty else { return }
+
+        context.saveGState()
+        // Match `setPath`'s y-flip: CoreText's frame uses y-up, the canvas
+        // is y-down. Without this the emoji would render upside down.
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
+
+        let runRanges = queued_runRanges(for: runs)
+        var accDx: CGFloat = 0
+        var accDy: CGFloat = 0
+        var lastSeenRunIndex = -1
+
+        for (line, lineOrigin) in zip(lines, frame.lineOrigins) {
+            for run in line.runs {
+                let runIndex = queued_textRunIndex(for: run.range, in: runRanges)
+                if runIndex != lastSeenRunIndex {
+                    for i in (lastSeenRunIndex + 1)...runIndex
+                    where i >= 0 && i < runs.count {
+                        accDx += runs[i].dx
+                        accDy += runs[i].dy
+                    }
+                    lastSeenRunIndex = runIndex
+                }
+
+                let coreFont = run.font as CTFont
+                guard runHasColorGlyphs(run, font: coreFont) else { continue }
+
+                // CTRunDraw renders glyphs at their per-glyph CTRun positions
+                // relative to the context's text position. Setting it to the
+                // line origin places the run at the right line.
+                context.textPosition = CGPoint(
+                    x: lineOrigin.x + accDx,
+                    y: lineOrigin.y + accDy
+                )
+                CTRunDraw(run, context, CFRange(location: 0, length: 0))
+            }
+        }
+
+        context.restoreGState()
+    }
+
+    /// `true` when the run's font has bitmap (color) glyphs and therefore
+    /// produces no path via `CTFontCreatePathForGlyph`. We probe the run's
+    /// first glyph as a representative — CoreText emits a separate run per
+    /// font, so a "mixed" run isn't possible in practice.
+    func runHasColorGlyphs(_ run: CTRun, font: CTFont) -> Bool {
+        let glyphCount = CTRunGetGlyphCount(run)
+        guard glyphCount > 0 else { return false }
+        var glyph: CGGlyph = 0
+        CTRunGetGlyphs(run, CFRange(location: 0, length: 1), &glyph)
+        var transform = CGAffineTransform.identity
+        return CTFontCreatePathForGlyph(font, glyph, &transform) == nil
     }
 
     func queued_textDecorationPath(_ lines: TextDecorationLine, fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGPath {
