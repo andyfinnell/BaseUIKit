@@ -55,6 +55,7 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
                 autosize: layer.autosize,
                 width: layer.width,
                 runs: layer.runs,
+                shouldScaleWithZoom: layer.shouldScaleWithZoom,
                 baseline: layer.baseline,
                 textDecorationLines: layer.textDecorationLines,
                 filter: layer.filter
@@ -181,6 +182,7 @@ private extension CanvasText {
         var autosize: Bool
         var width: Double
         var runs: [TextRun]
+        var shouldScaleWithZoom: Bool
         var baseline: TextBaseline
         var textDecorationLines: TextDecorationLine
         var filter: FilterLayer?
@@ -296,6 +298,22 @@ private extension CanvasText {
     }
 
     func locked_drawSelf(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
+        if !memberData.shouldScaleWithZoom {
+            // `memberData.transform` already has the baseline offset
+            // concatenated (so the offset lives pre-1/scale, in doc-space
+            // units). A pill computed from `typographicBounds` carries the
+            // same offset in post-1/scale local-space units. Without this
+            // dance the two diverge by `baselineOffset × (zoom − 1)` and
+            // the text walks out of its pill as the user zooms in.
+            let baselineOffset = Self.computeBaselineOffset(memberData.baseline, runs: memberData.runs)
+            if baselineOffset != 0 {
+                context.translateBy(x: 0, y: -baselineOffset)
+            }
+            context.scaleBy(x: 1.0 / scale, y: 1.0 / scale)
+            if baselineOffset != 0 {
+                context.translateBy(x: 0, y: baselineOffset)
+            }
+        }
         let bounds = locked_structureBounds(&memberData)
 
         guard !memberData.runs.isEmpty else { return }
@@ -465,6 +483,10 @@ private extension CanvasText {
         }
         if memberData.textDecorationLines != layer.textDecorationLines {
             memberData.textDecorationLines = layer.textDecorationLines
+            didChange = true
+        }
+        if memberData.shouldScaleWithZoom != layer.shouldScaleWithZoom {
+            memberData.shouldScaleWithZoom = layer.shouldScaleWithZoom
             didChange = true
         }
         if memberData.filter != layer.filter {

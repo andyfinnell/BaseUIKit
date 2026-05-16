@@ -8,6 +8,7 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
     public let isVisible: Bool
     public let decorations: [Decoration]
     public let runs: [TextRun]
+    public let shouldScaleWithZoom: Bool
     public let autosize: Bool
     public let width: Double
     public let baseline: TextBaseline
@@ -22,6 +23,7 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         isVisible: Bool,
         decorations: [Decoration],
         runs: [TextRun],
+        shouldScaleWithZoom: Bool = true,
         autosize: Bool,
         width: Double,
         baseline: TextBaseline = .alphabetic,
@@ -35,6 +37,7 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         self.isVisible = isVisible
         self.decorations = decorations
         self.runs = runs
+        self.shouldScaleWithZoom = shouldScaleWithZoom
         self.autosize = autosize
         self.width = width
         self.baseline = baseline
