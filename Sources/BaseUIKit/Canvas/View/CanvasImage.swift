@@ -57,7 +57,7 @@ extension CanvasImage: CanvasObject {
         }
     }
 
-    func hitTest(_ location: CGPoint) -> Bool {
+    func hitTest(_ location: CGPoint, atScale scale: CGFloat) -> Bool {
         memberData.withLock {
             locked_globalBounds(&$0).contains(location)
         }

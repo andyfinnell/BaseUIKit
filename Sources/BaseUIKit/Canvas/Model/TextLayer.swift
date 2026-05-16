@@ -3,6 +3,7 @@ import BaseKit
 public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiable {
     public let id: ID
     public let transform: Transform
+    public let screenOffset: Vector
     public let opacity: Double
     public let blendMode: BlendMode
     public let isVisible: Bool
@@ -18,6 +19,7 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
     public init(
         id: ID,
         transform: Transform,
+        screenOffset: Vector = .zero,
         opacity: Double,
         blendMode: BlendMode,
         isVisible: Bool,
@@ -32,6 +34,7 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
     ) {
         self.id = id
         self.transform = transform
+        self.screenOffset = screenOffset
         self.opacity = opacity
         self.blendMode = blendMode
         self.isVisible = isVisible

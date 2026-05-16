@@ -48,6 +48,7 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
                 didDrawRect: .zero,
                 layer: .text(layer),
                 transform: effectiveTransform,
+                screenOffset: layer.screenOffset,
                 opacity: layer.opacity,
                 blendMode: layer.blendMode,
                 isVisible: layer.isVisible,
@@ -58,7 +59,8 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
                 shouldScaleWithZoom: layer.shouldScaleWithZoom,
                 baseline: layer.baseline,
                 textDecorationLines: layer.textDecorationLines,
-                filter: layer.filter
+                filter: layer.filter,
+                lastDrawnAtScale: 1.0
             )
         )
     }
@@ -86,12 +88,25 @@ extension CanvasText: CanvasObject {
         }
     }
 
-    func hitTest(_ location: CGPoint) -> Bool {
+    func hitTest(_ location: CGPoint, atScale scale: CGFloat) -> Bool {
         memberData.withLock {
             let bounds = locked_structureBounds(&$0)
             let affineTransform = $0.transform.toCG
             let contentBounds = bounds.applying(affineTransform)
-            return contentBounds.contains(location)
+            // `contentBounds` lives in doc-space without `screenOffset`
+            // applied. The on-screen geometry is shifted by
+            // `screenOffset / scale` doc-pt — compensate by shifting the test
+            // location the other way.
+            let adjusted: CGPoint
+            if $0.screenOffset != .zero {
+                adjusted = CGPoint(
+                    x: location.x - CGFloat($0.screenOffset.dx) / scale,
+                    y: location.y - CGFloat($0.screenOffset.dy) / scale
+                )
+            } else {
+                adjusted = location
+            }
+            return contentBounds.contains(adjusted)
         }
     }
 
@@ -175,6 +190,7 @@ private extension CanvasText {
         var didDrawRect: CGRect
         var layer: Layer<ID>
         var transform: Transform
+        var screenOffset: Vector
         var opacity: Double
         var blendMode: BlendMode
         var isVisible: Bool
@@ -186,6 +202,8 @@ private extension CanvasText {
         var baseline: TextBaseline
         var textDecorationLines: TextDecorationLine
         var filter: FilterLayer?
+        // See `CanvasPath.MemberData.lastDrawnAtScale` for rationale.
+        var lastDrawnAtScale: CGFloat
     }
 
     func locked_typographicBounds(_ memberData: inout MemberData) -> CGRect {
@@ -261,6 +279,7 @@ private extension CanvasText {
     }
 
     func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
+        memberData.lastDrawnAtScale = scale
         guard locked_willDrawRect(&memberData).intersects(rect) else {
             return
         }
@@ -313,6 +332,16 @@ private extension CanvasText {
             if baselineOffset != 0 {
                 context.translateBy(x: 0, y: baselineOffset)
             }
+        }
+        if memberData.screenOffset != .zero {
+            // After the 1/scale block above (when shouldScaleWithZoom=false)
+            // local units == screen-pt. Otherwise local units are doc-pt and
+            // we divide by scale to land at the same device-pt displacement.
+            let factor: CGFloat = memberData.shouldScaleWithZoom ? (1.0 / scale) : 1.0
+            context.translateBy(
+                x: CGFloat(memberData.screenOffset.dx) * factor,
+                y: CGFloat(memberData.screenOffset.dy) * factor
+            )
         }
         let bounds = locked_structureBounds(&memberData)
 
@@ -457,6 +486,10 @@ private extension CanvasText {
             memberData.transform = effectiveTransform
             didChange = true
         }
+        if memberData.screenOffset != layer.screenOffset {
+            memberData.screenOffset = layer.screenOffset
+            didChange = true
+        }
         if memberData.opacity != layer.opacity {
             memberData.opacity = layer.opacity
             didChange = true
@@ -512,7 +545,15 @@ private extension CanvasText {
     }
 
     func locked_willDrawRect(_ memberData: inout MemberData) -> CGRect {
-        locked_globalEffectiveBounds(&memberData)
+        var rect = locked_globalEffectiveBounds(&memberData)
+        if memberData.screenOffset != .zero {
+            let scale = max(memberData.lastDrawnAtScale, 0.0001)
+            rect = rect.offsetBy(
+                dx: CGFloat(memberData.screenOffset.dx) / scale,
+                dy: CGFloat(memberData.screenOffset.dy) / scale
+            )
+        }
+        return rect
     }
 
     func setPath(_ path: CGPath, with bounds: CGRect, in context: CGContext) {

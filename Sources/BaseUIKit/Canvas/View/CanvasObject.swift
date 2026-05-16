@@ -18,7 +18,7 @@ protocol CanvasObject<ID>: AnyObject, Sendable {
     
     func updateLayer(_ layer: Layer<ID>) -> Set<CanvasInvalidation>
     
-    func hitTest(_ location: CGPoint) -> Bool
+    func hitTest(_ location: CGPoint, atScale scale: CGFloat) -> Bool
     func intersects(_ rect: CGRect) -> Bool
     func contained(by rect: CGRect) -> Bool
     

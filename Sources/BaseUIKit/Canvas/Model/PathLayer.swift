@@ -4,6 +4,7 @@ import Foundation
 public struct PathLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiable {
     public let id: ID
     public let transform: Transform
+    public let screenOffset: Vector
     public let opacity: Double
     public let blendMode: BlendMode
     public let isVisible: Bool
@@ -18,6 +19,7 @@ public struct PathLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
     public init(
         id: ID,
         transform: Transform = .identity,
+        screenOffset: Vector = .zero,
         opacity: Double = 1.0,
         blendMode: BlendMode = .normal,
         isVisible: Bool = true,
@@ -31,6 +33,7 @@ public struct PathLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
     ) {
         self.id = id
         self.transform = transform
+        self.screenOffset = screenOffset
         self.opacity = opacity
         self.blendMode = blendMode
         self.isVisible = isVisible

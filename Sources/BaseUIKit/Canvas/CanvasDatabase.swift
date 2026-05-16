@@ -567,8 +567,9 @@ private extension CanvasDatabase {
         including predicate: (ID) -> Bool
     ) -> [Layer<ID>] {
         let cgLocation = location.toCG
+        let scale = memberData.zoom
         let foundObject = memberData.objectsInOrder.reversed().first { object in
-            predicate(object.id) && object.hitTest(cgLocation)
+            predicate(object.id) && object.hitTest(cgLocation, atScale: scale)
         }
         if let foundObject {
             return [foundObject.layer]

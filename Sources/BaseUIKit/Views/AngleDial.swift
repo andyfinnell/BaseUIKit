@@ -80,8 +80,8 @@ private extension AngleDial {
         let center = CGPoint(x: AngleDial.size / 2.0, y: AngleDial.size / 2.0)
         let zeroPoint = CGPoint(x: AngleDial.size, y: AngleDial.size / 2.0)
         
-        let vectorA = Vector(start: center, end: zeroPoint)
-        let vectorB = Vector(start: center, end: location)
+        let vectorA = DialEdge(start: center, end: zeroPoint)
+        let vectorB = DialEdge(start: center, end: location)
         
         var newAngle = vectorA.angle(between: vectorB)
         if location.y < center.y {
@@ -117,7 +117,7 @@ struct DialKnobShape: Shape {
     }
 }
 
-struct Vector {
+struct DialEdge {
     let start: CGPoint
     let end: CGPoint
     
@@ -127,7 +127,7 @@ struct Vector {
         return sqrt(xDelta * xDelta + yDelta * yDelta)
     }
     
-    func dotProduct(_ b: Vector) -> CGFloat {
+    func dotProduct(_ b: DialEdge) -> CGFloat {
         // ax × bx + ay × by
         let ax = end.x - start.x
         let ay = end.y - start.y
@@ -136,7 +136,7 @@ struct Vector {
         return ax * bx + ay * by
     }
     
-    func angle(between other: Vector) -> BaseKit.Angle {
+    func angle(between other: DialEdge) -> BaseKit.Angle {
         BaseKit.Angle(radians: acos(dotProduct(other) / (length * other.length)))
     }
 }

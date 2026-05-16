@@ -23,6 +23,7 @@ final class CanvasPath<ID: Hashable & Sendable>: Sendable {
                 didDrawRect: .zero,
                 layer: .path(layer),
                 transform: layer.transform,
+                screenOffset: layer.screenOffset,
                 opacity: layer.opacity,
                 blendMode: layer.blendMode,
                 isVisible: layer.isVisible,
@@ -34,7 +35,8 @@ final class CanvasPath<ID: Hashable & Sendable>: Sendable {
                 cachedMaskImage: nil,
                 filter: layer.filter,
                 markers: layer.markers,
-                renderedBezier: renderedBezier
+                renderedBezier: renderedBezier,
+                lastDrawnAtScale: 1.0
             )
         )
     }
@@ -63,13 +65,26 @@ extension CanvasPath: CanvasObject{
         }
     }
     
-    func hitTest(_ location: CGPoint) -> Bool {
+    func hitTest(_ location: CGPoint, atScale scale: CGFloat) -> Bool {
         memberData.withLock { memberData in
-            if locked_hasFill(&memberData) && memberData.renderedBezier.cgPath.contains(location) {
+            // `renderedBezier` lives in doc-space without `screenOffset`
+            // applied. The on-screen geometry is shifted by
+            // `screenOffset / scale` doc-pt — compensate by shifting the test
+            // location the other way.
+            let adjusted: CGPoint
+            if memberData.screenOffset != .zero {
+                adjusted = CGPoint(
+                    x: location.x - CGFloat(memberData.screenOffset.dx) / scale,
+                    y: location.y - CGFloat(memberData.screenOffset.dy) / scale
+                )
+            } else {
+                adjusted = location
+            }
+            if locked_hasFill(&memberData) && memberData.renderedBezier.cgPath.contains(adjusted) {
                 return true
             } else {
                 let width = locked_strokeWidth(&memberData)
-                let distance = memberData.renderedBezier.distance(to: Point(location))
+                let distance = memberData.renderedBezier.distance(to: Point(adjusted))
                 return distance <= width
             }
         }
@@ -123,6 +138,7 @@ private extension CanvasPath {
         var didDrawRect: CGRect
         var layer: Layer<ID>
         var transform: Transform
+        var screenOffset: Vector
         var opacity: Double
         var blendMode: BlendMode
         var isVisible: Bool
@@ -135,6 +151,14 @@ private extension CanvasPath {
         var filter: FilterLayer?
         var markers: MarkerLayer?
         var renderedBezier: BezierPath
+        // The scale we most recently drew at. Used by `locked_willDrawRect`
+        // to convert `screenOffset` from screen-pt to doc-pt without
+        // threading a `scale` argument through every call site that asks
+        // for the rect. Default `1.0` is fine for the first draw — the
+        // first invalidation has no prior state to clear and a wrong rect
+        // here just means slightly under-aggressive culling on that one
+        // frame.
+        var lastDrawnAtScale: CGFloat
     }
     
     func locked_structureBounds(_ memberData: inout MemberData) -> CGRect {
@@ -142,14 +166,23 @@ private extension CanvasPath {
     }
 
     func locked_willDrawRect(_ memberData: inout MemberData) -> CGRect {
-        locked_quickGlobalEffectiveBounds(&memberData)
+        var rect = locked_quickGlobalEffectiveBounds(&memberData)
+        if memberData.screenOffset != .zero {
+            let scale = max(memberData.lastDrawnAtScale, 0.0001)
+            rect = rect.offsetBy(
+                dx: CGFloat(memberData.screenOffset.dx) / scale,
+                dy: CGFloat(memberData.screenOffset.dy) / scale
+            )
+        }
+        return rect
     }
 
     func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
+        memberData.lastDrawnAtScale = scale
         guard locked_willDrawRect(&memberData).intersects(rect) else {
             return
         }
-        
+
         memberData.didDrawRect = locked_willDrawRect(&memberData)
 
         guard memberData.isVisible else {
@@ -199,6 +232,17 @@ private extension CanvasPath {
     func locked_drawSelf(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         if !memberData.shouldScaleWithZoom {
             context.scaleBy(x: 1.0 / scale, y: 1.0 / scale)
+        }
+        if memberData.screenOffset != .zero {
+            // After the 1/scale above, local units == screen-pt and the
+            // offset can be applied directly. Without the inversion local
+            // units are doc-pt, so divide by scale to land at the same
+            // device-pt displacement.
+            let factor: CGFloat = memberData.shouldScaleWithZoom ? (1.0 / scale) : 1.0
+            context.translateBy(
+                x: CGFloat(memberData.screenOffset.dx) * factor,
+                y: CGFloat(memberData.screenOffset.dy) * factor
+            )
         }
         let bezier = memberData.bezier
         for decoration in memberData.decorations {
@@ -252,6 +296,10 @@ private extension CanvasPath {
         if memberData.transform != layer.transform {
             memberData.transform = layer.transform
             needsRenderedBezierUpdate = true
+            didChange = true
+        }
+        if memberData.screenOffset != layer.screenOffset {
+            memberData.screenOffset = layer.screenOffset
             didChange = true
         }
         if memberData.opacity != layer.opacity {
