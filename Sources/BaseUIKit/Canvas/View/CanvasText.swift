@@ -60,6 +60,7 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
                 baseline: layer.baseline,
                 textDecorationLines: layer.textDecorationLines,
                 filter: layer.filter,
+                hitPadding: layer.hitPadding,
                 lastDrawnAtScale: 1.0
             )
         )
@@ -106,7 +107,11 @@ extension CanvasText: CanvasObject {
             } else {
                 adjusted = location
             }
-            return contentBounds.contains(adjusted)
+            let paddingDoc = $0.hitPadding / max(scale, 0.0001)
+            let paddedBounds = paddingDoc > 0
+                ? contentBounds.insetBy(dx: -paddingDoc, dy: -paddingDoc)
+                : contentBounds
+            return paddedBounds.contains(adjusted)
         }
     }
 
@@ -202,6 +207,7 @@ private extension CanvasText {
         var baseline: TextBaseline
         var textDecorationLines: TextDecorationLine
         var filter: FilterLayer?
+        var hitPadding: CGFloat
         // See `CanvasPath.MemberData.lastDrawnAtScale` for rationale.
         var lastDrawnAtScale: CGFloat
     }
@@ -524,6 +530,10 @@ private extension CanvasText {
         }
         if memberData.filter != layer.filter {
             memberData.filter = layer.filter
+            didChange = true
+        }
+        if memberData.hitPadding != layer.hitPadding {
+            memberData.hitPadding = layer.hitPadding
             didChange = true
         }
 

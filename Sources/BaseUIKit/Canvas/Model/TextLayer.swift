@@ -1,4 +1,5 @@
 import BaseKit
+import CoreGraphics
 
 public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiable {
     public let id: ID
@@ -15,6 +16,9 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
     public let baseline: TextBaseline
     public let textDecorationLines: TextDecorationLine
     public let filter: FilterLayer?
+    /// Extra screen-pt distance around the text's typographic bounds that
+    /// still counts as a hit. See `PathLayer.hitPadding`.
+    public let hitPadding: CGFloat
 
     public init(
         id: ID,
@@ -30,7 +34,8 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         width: Double,
         baseline: TextBaseline = .alphabetic,
         textDecorationLines: TextDecorationLine = [],
-        filter: FilterLayer? = nil
+        filter: FilterLayer? = nil,
+        hitPadding: CGFloat = 0
     ) {
         self.id = id
         self.transform = transform
@@ -46,5 +51,6 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         self.baseline = baseline
         self.textDecorationLines = textDecorationLines
         self.filter = filter
+        self.hitPadding = hitPadding
     }
 }

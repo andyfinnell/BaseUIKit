@@ -35,6 +35,8 @@ final class CanvasPath<ID: Hashable & Sendable>: Sendable {
                 cachedMaskImage: nil,
                 filter: layer.filter,
                 markers: layer.markers,
+                hitPadding: layer.hitPadding,
+                hitOnly: layer.hitOnly,
                 renderedBezier: renderedBezier,
                 lastDrawnAtScale: 1.0
             )
@@ -80,13 +82,13 @@ extension CanvasPath: CanvasObject{
             } else {
                 adjusted = location
             }
+            let paddingDoc = memberData.hitPadding / max(scale, 0.0001)
             if locked_hasFill(&memberData) && memberData.renderedBezier.cgPath.contains(adjusted) {
                 return true
-            } else {
-                let width = locked_strokeWidth(&memberData)
-                let distance = memberData.renderedBezier.distance(to: Point(adjusted))
-                return distance <= width
             }
+            let width = locked_strokeWidth(&memberData)
+            let distance = memberData.renderedBezier.distance(to: Point(adjusted))
+            return distance <= width + paddingDoc
         }
     }
     
@@ -150,6 +152,8 @@ private extension CanvasPath {
         var cachedMaskImage: CGImage?
         var filter: FilterLayer?
         var markers: MarkerLayer?
+        var hitPadding: CGFloat
+        var hitOnly: Bool
         var renderedBezier: BezierPath
         // The scale we most recently drew at. Used by `locked_willDrawRect`
         // to convert `screenOffset` from screen-pt to doc-pt without
@@ -166,6 +170,9 @@ private extension CanvasPath {
     }
 
     func locked_willDrawRect(_ memberData: inout MemberData) -> CGRect {
+        // Hit-only layers never paint, so they contribute nothing to
+        // invalidation regions.
+        guard !memberData.hitOnly else { return .zero }
         var rect = locked_quickGlobalEffectiveBounds(&memberData)
         if memberData.screenOffset != .zero {
             let scale = max(memberData.lastDrawnAtScale, 0.0001)
@@ -179,6 +186,10 @@ private extension CanvasPath {
 
     func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         memberData.lastDrawnAtScale = scale
+        guard !memberData.hitOnly else {
+            memberData.didDrawRect = .zero
+            return
+        }
         guard locked_willDrawRect(&memberData).intersects(rect) else {
             return
         }
@@ -347,6 +358,16 @@ private extension CanvasPath {
         }
         if memberData.markers != layer.markers {
             memberData.markers = layer.markers
+            didChange = true
+        }
+        if memberData.hitPadding != layer.hitPadding {
+            memberData.hitPadding = layer.hitPadding
+            // Pure hit-test change, no invalidate needed, but mark didChange
+            // so downstream observers see the new layer value.
+            didChange = true
+        }
+        if memberData.hitOnly != layer.hitOnly {
+            memberData.hitOnly = layer.hitOnly
             didChange = true
         }
         if didChange {

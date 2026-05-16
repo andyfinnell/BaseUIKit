@@ -15,6 +15,14 @@ public struct PathLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
     public let mask: MaskLayer?
     public let filter: FilterLayer?
     public let markers: MarkerLayer?
+    /// Extra screen-pt distance around the path that still counts as a hit.
+    /// Stays in screen-pt regardless of zoom — the hit-test converts to
+    /// doc-pt at the current scale. Default `0` preserves prior behavior.
+    public let hitPadding: CGFloat
+    /// When `true`, the layer is skipped in the draw pass (and contributes
+    /// nothing to invalidation rects) but still participates in hit-testing.
+    /// Used to attach an invisible hit affordance to a sibling visible layer.
+    public let hitOnly: Bool
 
     public init(
         id: ID,
@@ -29,7 +37,9 @@ public struct PathLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         clipPath: ClipPath? = nil,
         mask: MaskLayer? = nil,
         filter: FilterLayer? = nil,
-        markers: MarkerLayer? = nil
+        markers: MarkerLayer? = nil,
+        hitPadding: CGFloat = 0,
+        hitOnly: Bool = false
     ) {
         self.id = id
         self.transform = transform
@@ -44,5 +54,7 @@ public struct PathLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         self.mask = mask
         self.filter = filter
         self.markers = markers
+        self.hitPadding = hitPadding
+        self.hitOnly = hitOnly
     }
 }
