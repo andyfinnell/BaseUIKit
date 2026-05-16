@@ -63,13 +63,15 @@ extension CanvasImage: CanvasObject {
         }
     }
     
-    func intersects(_ rect: CGRect) -> Bool {
+    func intersects(_ rect: CGRect, atScale scale: CGFloat) -> Bool {
+        // Images always scale with zoom — `scale` doesn't change the
+        // doc-space footprint.
         memberData.withLock {
             locked_globalBounds(&$0).intersects(rect)
         }
     }
-    
-    func contained(by rect: CGRect) -> Bool {
+
+    func contained(by rect: CGRect, atScale scale: CGFloat) -> Bool {
         memberData.withLock {
             rect.contains(locked_globalBounds(&$0))
         }

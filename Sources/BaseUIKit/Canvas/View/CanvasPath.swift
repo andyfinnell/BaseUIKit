@@ -82,25 +82,44 @@ extension CanvasPath: CanvasObject{
             } else {
                 adjusted = location
             }
-            let paddingDoc = memberData.hitPadding / max(scale, 0.0001)
-            if locked_hasFill(&memberData) && memberData.renderedBezier.cgPath.contains(adjusted) {
-                return true
+            if memberData.shouldScaleWithZoom {
+                // Local-pt == doc-pt; renderedBezier is the visual geometry.
+                let paddingDoc = memberData.hitPadding / max(scale, 0.0001)
+                if locked_hasFill(&memberData) && memberData.renderedBezier.cgPath.contains(adjusted) {
+                    return true
+                }
+                let width = locked_strokeWidth(&memberData)
+                let distance = memberData.renderedBezier.distance(to: Point(adjusted))
+                return distance <= width + paddingDoc
+            } else {
+                // Renderer applies `transform * scaleBy(1/scale)`. Bring
+                // `adjusted` into local-pt space (where 1 unit = 1 screen-pt)
+                // and test against the unscaled `bezier`. In local-pt, the
+                // stroke width and hit-padding are both in screen-pt units
+                // already.
+                let safeScale = max(scale, 0.0001)
+                let effective = memberData.transform.toCG
+                    .scaledBy(x: 1.0 / safeScale, y: 1.0 / safeScale)
+                let local = adjusted.applying(effective.inverted())
+                let width = locked_strokeWidth(&memberData)
+                if locked_hasFill(&memberData) && memberData.bezier.cgPath.contains(local) {
+                    return true
+                }
+                let distance = memberData.bezier.distance(to: Point(local))
+                return distance <= width + memberData.hitPadding
             }
-            let width = locked_strokeWidth(&memberData)
-            let distance = memberData.renderedBezier.distance(to: Point(adjusted))
-            return distance <= width + paddingDoc
         }
     }
-    
-    func intersects(_ rect: CGRect) -> Bool {
+
+    func intersects(_ rect: CGRect, atScale scale: CGFloat) -> Bool {
         memberData.withLock {
-            $0.renderedBezier.cgPath.intersects(CGPath(rect: rect, transform: nil))
+            locked_visualCgPath(&$0, atScale: scale).intersects(CGPath(rect: rect, transform: nil))
         }
     }
-    
-    func contained(by rect: CGRect) -> Bool {
+
+    func contained(by rect: CGRect, atScale scale: CGFloat) -> Bool {
         memberData.withLock {
-            rect.contains($0.renderedBezier.cgPath.boundingBoxOfPath)
+            rect.contains(locked_visualCgPath(&$0, atScale: scale).boundingBoxOfPath)
         }
     }
 
@@ -173,9 +192,9 @@ private extension CanvasPath {
         // Hit-only layers never paint, so they contribute nothing to
         // invalidation regions.
         guard !memberData.hitOnly else { return .zero }
-        var rect = locked_quickGlobalEffectiveBounds(&memberData)
+        let scale = max(memberData.lastDrawnAtScale, 0.0001)
+        var rect = locked_quickGlobalEffectiveBounds(&memberData, atScale: scale)
         if memberData.screenOffset != .zero {
-            let scale = max(memberData.lastDrawnAtScale, 0.0001)
             rect = rect.offsetBy(
                 dx: CGFloat(memberData.screenOffset.dx) / scale,
                 dy: CGFloat(memberData.screenOffset.dy) / scale
@@ -190,11 +209,22 @@ private extension CanvasPath {
             memberData.didDrawRect = .zero
             return
         }
-        guard locked_willDrawRect(&memberData).intersects(rect) else {
+        // Compute willDrawRect at the actual scale (not lastDrawnAtScale)
+        // so the cull/didDrawRect agree with the geometry we're about to
+        // paint, even on the first frame at a fresh zoom.
+        var willDraw = locked_quickGlobalEffectiveBounds(&memberData, atScale: scale)
+        if memberData.screenOffset != .zero {
+            let safeScale = max(scale, 0.0001)
+            willDraw = willDraw.offsetBy(
+                dx: CGFloat(memberData.screenOffset.dx) / safeScale,
+                dy: CGFloat(memberData.screenOffset.dy) / safeScale
+            )
+        }
+        guard willDraw.intersects(rect) else {
             return
         }
 
-        memberData.didDrawRect = locked_willDrawRect(&memberData)
+        memberData.didDrawRect = willDraw
 
         guard memberData.isVisible else {
             return
@@ -377,8 +407,35 @@ private extension CanvasPath {
         }
     }
     
-    func locked_quickGlobalEffectiveBounds(_ memberData: inout MemberData) -> CGRect {
-        var bounds = memberData.decorations.effectiveBounds(for: memberData.renderedBezier.cgQuickBounds)
+    func locked_visualCgPath(_ memberData: inout MemberData, atScale scale: CGFloat) -> CGPath {
+        if memberData.shouldScaleWithZoom {
+            return memberData.renderedBezier.cgPath
+        }
+        // Renderer applies `transform * scaleBy(1/scale)` to the local
+        // bezier. Build that effective transform here and copy the path
+        // through it; callers use the result for shape-precise rubber-band
+        // intersect / contained tests.
+        let safeScale = max(scale, 0.0001)
+        var effective = memberData.transform.toCG
+            .scaledBy(x: 1.0 / safeScale, y: 1.0 / safeScale)
+        return memberData.bezier.cgPath.copy(using: &effective) ?? memberData.bezier.cgPath
+    }
+
+    func locked_quickGlobalEffectiveBounds(_ memberData: inout MemberData, atScale scale: CGFloat) -> CGRect {
+        // Visual bounds of the bezier in doc-space. When
+        // `shouldScaleWithZoom: false`, the renderer additionally applies
+        // `scaleBy(1/scale)` around the transform origin, shrinking the
+        // doc-space footprint accordingly.
+        let safeScale = max(scale, 0.0001)
+        let bezierDocBounds: CGRect
+        if memberData.shouldScaleWithZoom {
+            bezierDocBounds = memberData.renderedBezier.cgQuickBounds
+        } else {
+            let effective = memberData.transform.toCG
+                .scaledBy(x: 1.0 / safeScale, y: 1.0 / safeScale)
+            bezierDocBounds = memberData.bezier.cgQuickBounds.applying(effective)
+        }
+        var bounds = memberData.decorations.effectiveBounds(for: bezierDocBounds, atScale: safeScale)
         if let markers = memberData.markers {
             for placement in markers.placements {
                 for shape in placement.shapes {

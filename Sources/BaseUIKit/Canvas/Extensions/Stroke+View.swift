@@ -23,10 +23,16 @@ public extension Stroke {
         }
     }
 
-    func effectiveBounds(for rect: CGRect) -> CGRect {
-        var width = ceil(ceil(width) / 2.0)
+    /// Same as `effectiveBounds(for:)` but accounts for
+    /// `shouldScaleWithZoom: false`: the stroke is rendered at
+    /// `width / scale` doc-pt, so the bounds inset shrinks accordingly.
+    func effectiveBounds(for rect: CGRect, atScale scale: CGFloat) -> CGRect {
+        var width = ceil(ceil(self.width) / 2.0)
         if join == .miter {
             width *= miterLimit
+        }
+        if !shouldScaleWithZoom {
+            width = ceil(width / max(scale, 0.0001))
         }
         return rect.insetBy(dx: -ceil(width), dy: -ceil(width))
     }

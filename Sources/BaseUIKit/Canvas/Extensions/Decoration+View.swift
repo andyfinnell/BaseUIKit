@@ -12,10 +12,10 @@ public extension Decoration {
         }
     }
 
-    func effectiveBounds(for rect: CGRect) -> CGRect {
+    func effectiveBounds(for rect: CGRect, atScale scale: CGFloat) -> CGRect {
         switch self {
         case let .stroke(stroke):
-            return stroke.effectiveBounds(for: rect)
+            return stroke.effectiveBounds(for: rect, atScale: scale)
         case let .fill(fill):
             return fill.effectiveBounds(for: rect)
         }
@@ -23,8 +23,8 @@ public extension Decoration {
 }
 
 extension Array where Element == Decoration {
-    public func effectiveBounds(for rect: CGRect) -> CGRect {
-        map { $0.effectiveBounds(for: rect) }
+    public func effectiveBounds(for rect: CGRect, atScale scale: CGFloat) -> CGRect {
+        map { $0.effectiveBounds(for: rect, atScale: scale) }
             .reduce(rect) { partial, bounds in
                 partial.union(bounds)
             }

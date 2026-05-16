@@ -580,17 +580,19 @@ private extension CanvasDatabase {
     
     func locked_layersIntersectingBounds(_ memberData: inout MemberData, _ bounds: Rect, including predicate: (ID) -> Bool) -> [Layer<ID>] {
         let cgBounds = bounds.toCG
+        let scale = memberData.zoom
         return memberData.objectsInOrder
             .filter { predicate($0.id) }
-            .filter { $0.intersects(cgBounds) }
+            .filter { $0.intersects(cgBounds, atScale: scale) }
             .map { $0.layer }
     }
 
     func locked_layersContainingBounds(_ memberData: inout MemberData, _ bounds: Rect, including predicate: (ID) -> Bool) -> [Layer<ID>] {
         let cgBounds = bounds.toCG
+        let scale = memberData.zoom
         return memberData.objectsInOrder
             .filter { predicate($0.id) }
-            .filter { $0.contained(by: cgBounds) }
+            .filter { $0.contained(by: cgBounds, atScale: scale) }
             .map { $0.layer }
     }
 

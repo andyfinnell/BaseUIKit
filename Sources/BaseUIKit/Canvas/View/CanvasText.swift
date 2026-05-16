@@ -92,8 +92,7 @@ extension CanvasText: CanvasObject {
     func hitTest(_ location: CGPoint, atScale scale: CGFloat) -> Bool {
         memberData.withLock {
             let bounds = locked_structureBounds(&$0)
-            let affineTransform = $0.transform.toCG
-            let contentBounds = bounds.applying(affineTransform)
+            let contentBounds = bounds.applying(locked_effectiveTransform(&$0, atScale: scale))
             // `contentBounds` lives in doc-space without `screenOffset`
             // applied. The on-screen geometry is shifted by
             // `screenOffset / scale` doc-pt — compensate by shifting the test
@@ -115,20 +114,18 @@ extension CanvasText: CanvasObject {
         }
     }
 
-    func intersects(_ rect: CGRect) -> Bool {
+    func intersects(_ rect: CGRect, atScale scale: CGFloat) -> Bool {
         memberData.withLock {
             let bounds = locked_structureBounds(&$0)
-            let affineTransform = $0.transform.toCG
-            let contentBounds = bounds.applying(affineTransform)
+            let contentBounds = bounds.applying(locked_effectiveTransform(&$0, atScale: scale))
             return contentBounds.intersects(rect)
         }
     }
 
-    func contained(by rect: CGRect) -> Bool {
+    func contained(by rect: CGRect, atScale scale: CGFloat) -> Bool {
         memberData.withLock {
             let bounds = locked_structureBounds(&$0)
-            let affineTransform = $0.transform.toCG
-            let contentBounds = bounds.applying(affineTransform)
+            let contentBounds = bounds.applying(locked_effectiveTransform(&$0, atScale: scale))
             return rect.contains(contentBounds)
         }
     }
@@ -286,11 +283,19 @@ private extension CanvasText {
 
     func locked_draw(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         memberData.lastDrawnAtScale = scale
-        guard locked_willDrawRect(&memberData).intersects(rect) else {
+        var willDraw = locked_globalEffectiveBounds(&memberData, atScale: scale)
+        if memberData.screenOffset != .zero {
+            let safeScale = max(scale, 0.0001)
+            willDraw = willDraw.offsetBy(
+                dx: CGFloat(memberData.screenOffset.dx) / safeScale,
+                dy: CGFloat(memberData.screenOffset.dy) / safeScale
+            )
+        }
+        guard willDraw.intersects(rect) else {
             return
         }
 
-        memberData.didDrawRect = locked_willDrawRect(&memberData)
+        memberData.didDrawRect = willDraw
 
         guard memberData.isVisible else {
             return
@@ -544,20 +549,39 @@ private extension CanvasText {
         }
     }
 
-    func locked_effectiveBounds(_ memberData: inout MemberData) -> CGRect {
-        var bounds = locked_structureBounds(&memberData)
-        bounds.size.height += locked_dyHeightExpansion(&memberData)
-        return memberData.decorations.effectiveBounds(for: bounds)
+    /// Doc-space transform actually applied to local-space text geometry,
+    /// accounting for `shouldScaleWithZoom: false`. The renderer applies
+    /// `transform * translate(0, -baselineOffset) * scaleBy(1/scale) * translate(0, baselineOffset)`
+    /// in that case so the text stays a constant screen-pt size around the
+    /// baseline anchor; the same composition produces the correct doc-space
+    /// bounds for hit-test, invalidation, and rubber-band.
+    func locked_effectiveTransform(_ memberData: inout MemberData, atScale scale: CGFloat) -> CGAffineTransform {
+        let docTransform = memberData.transform.toCG
+        guard !memberData.shouldScaleWithZoom else { return docTransform }
+        let safeScale = max(scale, 0.0001)
+        let baselineOffset = CGFloat(Self.computeBaselineOffset(memberData.baseline, runs: memberData.runs))
+        return docTransform
+            .translatedBy(x: 0, y: -baselineOffset)
+            .scaledBy(x: 1.0 / safeScale, y: 1.0 / safeScale)
+            .translatedBy(x: 0, y: baselineOffset)
     }
 
-    func locked_globalEffectiveBounds(_ memberData: inout MemberData) -> CGRect {
-        memberData.transform.apply(to: locked_effectiveBounds(&memberData))
+    func locked_effectiveBounds(_ memberData: inout MemberData, atScale scale: CGFloat) -> CGRect {
+        var bounds = locked_structureBounds(&memberData)
+        bounds.size.height += locked_dyHeightExpansion(&memberData)
+        let safeScale = max(scale, 0.0001)
+        return memberData.decorations.effectiveBounds(for: bounds, atScale: safeScale)
+    }
+
+    func locked_globalEffectiveBounds(_ memberData: inout MemberData, atScale scale: CGFloat) -> CGRect {
+        let localBounds = locked_effectiveBounds(&memberData, atScale: scale)
+        return localBounds.applying(locked_effectiveTransform(&memberData, atScale: scale))
     }
 
     func locked_willDrawRect(_ memberData: inout MemberData) -> CGRect {
-        var rect = locked_globalEffectiveBounds(&memberData)
+        let scale = max(memberData.lastDrawnAtScale, 0.0001)
+        var rect = locked_globalEffectiveBounds(&memberData, atScale: scale)
         if memberData.screenOffset != .zero {
-            let scale = max(memberData.lastDrawnAtScale, 0.0001)
             rect = rect.offsetBy(
                 dx: CGFloat(memberData.screenOffset.dx) / scale,
                 dy: CGFloat(memberData.screenOffset.dy) / scale
