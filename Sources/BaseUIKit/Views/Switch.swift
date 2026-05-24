@@ -1,16 +1,17 @@
 import SwiftUI
 
 public struct Switch<Label: View>: View {
-    @State private var isOn = [false]
+    @State private var isOn: [Bool]
     private let binding: SmartCollectionBind<[Bool]>
     private let label: ViewHolder<Label>
-    
+
     public init(
         isOn: Bool,
         onChange: @escaping (Bool) -> Void,
         @ViewBuilder label: @escaping () -> Label
     ) {
         binding = SmartCollectionBind([isOn], onChange)
+        _isOn = State(initialValue: [isOn])
         self.label = ViewHolder(label)
     }
 
@@ -27,6 +28,7 @@ public struct Switch<Label: View>: View {
         onChange: @escaping (Bool) -> Void
     ) where Label == Text {
         binding = SmartCollectionBind([isOn], onChange)
+        _isOn = State(initialValue: [isOn])
         self.label = ViewHolder({ Text(titleKey) })
     }
 
@@ -43,7 +45,9 @@ public struct Switch<Label: View>: View {
         onChange: @escaping (Bool) -> Void,
         @ViewBuilder label: @escaping () -> Label
     ) {
-        binding = SmartCollectionBind(sources.map { $0[keyPath: isOn] }, onChange)
+        let initialValues = sources.map { $0[keyPath: isOn] }
+        binding = SmartCollectionBind(initialValues, onChange)
+        _isOn = State(initialValue: initialValues)
         self.label = ViewHolder(label)
     }
 
@@ -53,7 +57,9 @@ public struct Switch<Label: View>: View {
         isOn: KeyPath<C.Element, Bool>,
         onChange: @escaping (Bool) -> Void
     ) where Label == Text {
-        binding = SmartCollectionBind(sources.map { $0[keyPath: isOn] }, onChange)
+        let initialValues = sources.map { $0[keyPath: isOn] }
+        binding = SmartCollectionBind(initialValues, onChange)
+        _isOn = State(initialValue: initialValues)
         self.label = ViewHolder({ Text(titleKey) })
     }
 
