@@ -49,9 +49,13 @@ public struct NumericFieldParser: SliderFieldParser {
     public static func doubleValue(_ value: Double) -> Double {
         value
     }
-    
+
     public static func fromDoubleValue(_ number: Double, existing: Double) -> Double {
         number
+    }
+
+    public static func isMixedSentinel(_ value: Double) -> Bool {
+        !value.isFinite
     }
 }
 

@@ -10,20 +10,33 @@ public struct FieldParserError: Error {
 
 public protocol FieldParser<Value> {
     associatedtype Value: Equatable & Sendable
-    
+
     static func parseValue(_ text: String) -> Result<Value, FieldParserError>
     static func formatValue(_ value: Value) -> String
     static func hasChanged(_ old: Value, _ new: Value) -> Bool
-    
+
     static func multiselectBinding<C: RandomAccessCollection & Sendable>(
         sources: C,
         value: KeyPath<C.Element, Binding<Value>> & Sendable
     ) -> Binding<Value>
-    
+
     static func multiselectValue<C: RandomAccessCollection & Sendable>(
         sources: C,
         value: KeyPath<C.Element, Value> & Sendable
     ) -> Value
+
+    /// Returns `true` when `value` is the sentinel that `multiselectValue`
+    /// emits for non-uniform sources — i.e. the selection has mixed
+    /// values for this field. Field views switch their visual
+    /// presentation (empty text + "Mixed" placeholder, no slider thumb)
+    /// when this returns `true`. Default `false` for parsers that don't
+    /// emit a distinguishable sentinel (in which case mixed-value
+    /// selections are indistinguishable from a real value).
+    static func isMixedSentinel(_ value: Value) -> Bool
+}
+
+public extension FieldParser {
+    static func isMixedSentinel(_ value: Value) -> Bool { false }
 }
 
 public struct ValueField<Parser: FieldParser>: View {
@@ -84,7 +97,7 @@ public struct ValueField<Parser: FieldParser>: View {
         VStack {
             TextField(
                 text: $text,
-                prompt: Text(title),
+                prompt: Text(promptText),
                 label: {
                     Text(title)
                         .multilineTextAlignment(.trailing)
@@ -112,7 +125,7 @@ public struct ValueField<Parser: FieldParser>: View {
             }
         }
         .onChange(of: value.value, initial: true) { oldValue, newValue in
-            text = Parser.formatValue(newValue)
+            text = expectedTextForCurrentValue(newValue)
         }
         .onChange(of: text) { oldValue, newValue in
             guard newValue != oldValue else {
@@ -120,10 +133,10 @@ public struct ValueField<Parser: FieldParser>: View {
             }
             // Skip the write-back when the text update was driven by a
             // change to `value.value` rather than user typing — detected
-            // by `text` matching `formatValue(value.value)`. See the
-            // longer rationale in `InlineSliderField` and the
+            // by `text` matching what we'd render programmatically.
+            // See the longer rationale in `InlineSliderField` and the
             // AppearancePanel mixed-opacity regression test.
-            if newValue == Parser.formatValue(value.value) {
+            if newValue == expectedTextForCurrentValue(value.value) {
                 errorMessage = nil
                 return
             }
@@ -151,6 +164,14 @@ public struct ValueField<Parser: FieldParser>: View {
 }
 
 private extension ValueField {
+    func expectedTextForCurrentValue(_ value: Parser.Value) -> String {
+        Parser.isMixedSentinel(value) ? "" : Parser.formatValue(value)
+    }
+
+    var promptText: String {
+        Parser.isMixedSentinel(value.value) ? "Mixed" : title
+    }
+
     func beginTextEditingIfNecessary() {
         guard isFocused && !isTextEditing else {
             return

@@ -47,6 +47,10 @@ public struct OpacityFieldParser: SliderFieldParser {
         } ?? 0.0
     }
 
+    public static func isMixedSentinel(_ value: Double) -> Bool {
+        !value.isFinite
+    }
+
     public static func doubleValue(_ value: Double) -> Double {
         value
     }
@@ -68,6 +72,10 @@ public struct OpacityField: View {
 
     private let value: SmartBind<Double, ExtraEmpty>
     private let style: Style
+    /// Per-source value positions, used as markers on the slider track
+    /// when the selection is in the mixed state. Empty when constructed
+    /// with a single value rather than a `sources:` collection.
+    private let markers: [Double]
     private let onBeginEditing: Callback<Void>
     private let onEndEditing: Callback<Void>
 
@@ -80,6 +88,7 @@ public struct OpacityField: View {
     ) {
         self.value = SmartBind(value, onChange)
         self.style = style
+        self.markers = []
         self.onBeginEditing = Callback(onBeginEditing)
         self.onEndEditing = Callback(onEndEditing)
     }
@@ -101,13 +110,12 @@ public struct OpacityField: View {
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
-        self.init(
-            value: OpacityFieldParser.multiselectValue(sources: sources, value: value),
-            onChange: onChange,
-            style: style,
-            onBeginEditing: onBeginEditing,
-            onEndEditing: onEndEditing
-        )
+        self.value = SmartBind(
+            OpacityFieldParser.multiselectValue(sources: sources, value: value), onChange)
+        self.style = style
+        self.markers = sources.map { $0[keyPath: value] }
+        self.onBeginEditing = Callback(onBeginEditing)
+        self.onEndEditing = Callback(onEndEditing)
     }
 
     public var body: some View {
@@ -125,6 +133,7 @@ public struct OpacityField: View {
                 "Opacity",
                 value: value,
                 in: 0...1,
+                markers: markers,
                 onBeginEditing: onBeginEditing,
                 onEndEditing: onEndEditing
             )

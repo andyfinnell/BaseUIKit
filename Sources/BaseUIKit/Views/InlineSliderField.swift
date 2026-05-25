@@ -11,6 +11,11 @@ public struct InlineSliderField<Parser: SliderFieldParser>: View {
     private let range: ClosedRange<Double>
     private let step: Double?
     private let defaultSliderValue: Double?
+    /// Per-source double positions used to render small markers on the
+    /// track when the selection is in the mixed sentinel state. Empty in
+    /// single-source contexts; otherwise one entry per source element,
+    /// pre-converted via `Parser.doubleValue`.
+    private let markers: [Double]
     private let onBeginEditing: Callback<Void>
     private let onEndEditing: Callback<Void>
     @State private var errorMessage: String?
@@ -35,6 +40,7 @@ public struct InlineSliderField<Parser: SliderFieldParser>: View {
         self.range = range
         self.step = step
         self.defaultSliderValue = defaultSliderValue
+        self.markers = []
         self.onBeginEditing = Callback(onBeginEditing)
         self.onEndEditing = Callback(onEndEditing)
         self.errorMessage = errorMessage
@@ -69,6 +75,7 @@ public struct InlineSliderField<Parser: SliderFieldParser>: View {
         in range: ClosedRange<Double>,
         step: Double? = nil,
         defaultSliderValue: Double? = nil,
+        markers: [Double] = [],
         errorMessage: String? = nil,
         onBeginEditing: Callback<Void>,
         onEndEditing: Callback<Void>
@@ -78,6 +85,7 @@ public struct InlineSliderField<Parser: SliderFieldParser>: View {
         self.range = range
         self.step = step
         self.defaultSliderValue = defaultSliderValue
+        self.markers = markers
         self.onBeginEditing = onBeginEditing
         self.onEndEditing = onEndEditing
         self.errorMessage = errorMessage
@@ -95,40 +103,27 @@ public struct InlineSliderField<Parser: SliderFieldParser>: View {
         onBeginEditing: @escaping () -> Void = {},
         onEndEditing: @escaping () -> Void = {}
     ) {
-        self.init(
-            title,
-            value: Parser.multiselectValue(sources: sources, value: value),
-            onChange: onChange,
-            in: range,
-            step: step,
-            defaultSliderValue: defaultSliderValue,
-            errorMessage: errorMessage,
-            onBeginEditing: onBeginEditing,
-            onEndEditing: onEndEditing
-        )
+        self.title = title
+        self.value = SmartBind(
+            Parser.multiselectValue(sources: sources, value: value), onChange)
+        self.range = range
+        self.step = step
+        self.defaultSliderValue = defaultSliderValue
+        self.markers = sources.map { Parser.doubleValue($0[keyPath: value]) }
+        self.onBeginEditing = Callback(onBeginEditing)
+        self.onEndEditing = Callback(onEndEditing)
+        self.errorMessage = errorMessage
     }
 
     public var body: some View {
         VStack {
             HStack {
-                Slider(
-                    value: $number,
-                    in: range,
-                    step: resolvedStep,
-                    onEditingChanged: { isEditing in
-                        if isEditing {
-                            onBeginEditing()
-                        } else {
-                            onEndEditing()
-                        }
-                    }
-                )
-                .controlSize(.mini)
-                .frame(minWidth: 80)
+                slider
+                    .frame(minWidth: 80)
 
                 TextField(
                     text: $text,
-                    prompt: Text(title),
+                    prompt: Text(promptText),
                     label: {
                         Text(title)
                             .multilineTextAlignment(.trailing)
@@ -159,7 +154,7 @@ public struct InlineSliderField<Parser: SliderFieldParser>: View {
             }
         }
         .onChange(of: value.value, initial: true) { oldValue, newValue in
-            text = Parser.formatValue(newValue)
+            text = expectedTextForCurrentValue(newValue)
             number = resolvedSliderValue(for: newValue)
         }
         .onChange(of: text) { oldValue, newValue in
@@ -168,17 +163,16 @@ public struct InlineSliderField<Parser: SliderFieldParser>: View {
             }
             // Skip the write-back when this text update was driven by a
             // change to `value.value` rather than by user typing. The
-            // tell: the current text is exactly what `value.value`
-            // formats to. (If the user typed something that happens to
-            // format-match `value.value`, parsing it back would yield
-            // the same value anyway, so skipping is a no-op there too.)
+            // tell: the current text matches what we'd render
+            // programmatically for `value.value`. (Same-value user
+            // typings are no-ops anyway because `hasChanged` returns
+            // false, so skipping is safe.)
             //
             // Without this guard, lossy format/parse round-trips of a
-            // multi-select sentinel (`Double.infinity` formatting to
-            // "0" then parsing back to `0`) write spurious values to
-            // the model. See `AppearancePanelUITests
+            // multi-select sentinel write spurious values back to the
+            // model. See `AppearancePanelUITests
             // .testExtendingSelectionDoesNotClobberOpacity`.
-            if newValue == Parser.formatValue(value.value) {
+            if newValue == expectedTextForCurrentValue(value.value) {
                 errorMessage = nil
                 return
             }
@@ -232,6 +226,133 @@ public struct InlineSliderField<Parser: SliderFieldParser>: View {
 }
 
 private extension InlineSliderField {
+    /// The slider control. In mixed-value state, swaps to a fully custom
+    /// view (`mixedSlider`) showing a thin track with one marker dot per
+    /// selected element's actual value — no misleading "thumb at zero."
+    /// The custom view stays interactive via a `DragGesture` (dragging
+    /// anywhere on the track writes a uniform value to every selected
+    /// element, collapsing the mixed state). For accessibility / XCUI,
+    /// `.accessibilityRepresentation` wraps the custom view so it shows
+    /// up as a real `Slider` element to assistive tech and to
+    /// `XCUIElement.adjust(toNormalizedSliderPosition:)`.
+    @ViewBuilder
+    var slider: some View {
+        if Parser.isMixedSentinel(value.value), !markers.isEmpty {
+            mixedSlider
+        } else {
+            standardSlider
+        }
+    }
+
+    var standardSlider: some View {
+        Slider(
+            value: $number,
+            in: range,
+            step: resolvedStep,
+            onEditingChanged: { isEditing in
+                if isEditing {
+                    onBeginEditing()
+                } else {
+                    onEndEditing()
+                }
+            }
+        )
+        .controlSize(.mini)
+    }
+
+    var mixedSlider: some View {
+        // The mixed-state gesture writes a single value per tap (or per
+        // drag tick) directly via `value.onChange`, with NO surrounding
+        // `onBeginEditing`/`onEndEditing` wrap. Rationale: the first
+        // write collapses `value.value` out of the mixed sentinel state,
+        // which removes this branch from the view tree on the next
+        // render. SwiftUI cancels gestures on removed views, so an
+        // `onEnded` paired with an `onBeginEditing` would orphan the
+        // command stream — `completeCommandStream` would never fire and
+        // the command would never be registered with the undo manager.
+        // Using plain `performCommand` per write side-steps that: each
+        // tap is one normal undoable step.
+        GeometryReader { proxy in
+            ZStack {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(Color.secondary.opacity(0.3))
+                    .frame(height: 3)
+
+                ForEach(Array(markers.enumerated()), id: \.offset) { _, marker in
+                    let normalized = normalizedPosition(for: marker)
+                    Circle()
+                        .fill(Color.secondary)
+                        .frame(width: 6, height: 6)
+                        .position(
+                            x: normalized * proxy.size.width,
+                            y: proxy.size.height / 2
+                        )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        writeMixedSliderValue(
+                            atX: drag.location.x, trackWidth: proxy.size.width)
+                    }
+            )
+        }
+        .frame(height: 16)
+        .accessibilityRepresentation {
+            Slider(
+                value: Binding<Double>(
+                    get: { number },
+                    set: { newValue in
+                        let parsed = Parser.fromDoubleValue(
+                            newValue, existing: value.value)
+                        if Parser.hasChanged(value.value, parsed) {
+                            value.onChange(parsed)
+                        }
+                    }
+                ),
+                in: range,
+                step: resolvedStep
+            )
+        }
+    }
+
+    func writeMixedSliderValue(atX x: Double, trackWidth: Double) {
+        guard trackWidth > 0 else { return }
+        let progress = max(0, min(1, x / trackWidth))
+        let span = range.upperBound - range.lowerBound
+        let raw = range.lowerBound + progress * span
+        let stepped: Double
+        if resolvedStep > 0 {
+            stepped = range.lowerBound
+                + round((raw - range.lowerBound) / resolvedStep) * resolvedStep
+        } else {
+            stepped = raw
+        }
+        let parsed = Parser.fromDoubleValue(stepped, existing: value.value)
+        if Parser.hasChanged(value.value, parsed) {
+            value.onChange(parsed)
+        }
+    }
+
+    func normalizedPosition(for value: Double) -> Double {
+        let span = range.upperBound - range.lowerBound
+        guard span > 0 else { return 0 }
+        return max(0, min(1, (value - range.lowerBound) / span))
+    }
+
+    /// What `text` should hold for the given parser value, accounting
+    /// for the mixed sentinel case. The "is this update programmatic?"
+    /// guard above compares the text-change against this.
+    func expectedTextForCurrentValue(_ value: Parser.Value) -> String {
+        Parser.isMixedSentinel(value) ? "" : Parser.formatValue(value)
+    }
+
+    var promptText: String {
+        Parser.isMixedSentinel(value.value) ? "Mixed" : title
+    }
+
     var resolvedStep: Double {
         step ?? (range.upperBound - range.lowerBound) / 200.0
     }

@@ -96,7 +96,7 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
             HStack {
                 TextField(
                     text: $text,
-                    prompt: Text(title),
+                    prompt: Text(promptText),
                     label: {
                         Text(title)
                             .multilineTextAlignment(.trailing)
@@ -118,12 +118,13 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
                 .autocorrectionDisabled(true)
                 .multilineTextAlignment(.leading)
                 .labelsHidden()
-                
+
                 Button(action: {
                     isShowing.toggle()
                 }, label: {
                     Image(systemName: "chevron.up.chevron.down")
                 })
+                .disabled(Parser.isMixedSentinel(value.value))
             }
             .popover(isPresented: $isShowing) {
                 PopOverSlider(
@@ -152,7 +153,7 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
             }
         }
         .onChange(of: value.value, initial: true) { oldValue, newValue in
-            text = Parser.formatValue(newValue)
+            text = expectedTextForCurrentValue(newValue)
         }
         .onChange(of: text) { oldValue, newValue in
             guard newValue != oldValue else {
@@ -160,10 +161,10 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
             }
             // Skip the write-back when the text update was driven by a
             // change to `value.value` rather than user typing — detected
-            // by `text` matching `formatValue(value.value)`. See the
-            // longer rationale in `InlineSliderField` and the
+            // by `text` matching what we'd render programmatically. See
+            // the longer rationale in `InlineSliderField` and the
             // AppearancePanel mixed-opacity regression test.
-            if newValue == Parser.formatValue(value.value) {
+            if newValue == expectedTextForCurrentValue(value.value) {
                 errorMessage = nil
                 return
             }
@@ -191,6 +192,14 @@ public struct PopOverSliderField<Parser: SliderFieldParser>: View {
 }
 
 private extension PopOverSliderField {
+    func expectedTextForCurrentValue(_ value: Parser.Value) -> String {
+        Parser.isMixedSentinel(value) ? "" : Parser.formatValue(value)
+    }
+
+    var promptText: String {
+        Parser.isMixedSentinel(value.value) ? "Mixed" : title
+    }
+
     var resolvedSliderValue: Double {
         let parsed = Parser.doubleValue(value.value)
         if parsed.isFinite {

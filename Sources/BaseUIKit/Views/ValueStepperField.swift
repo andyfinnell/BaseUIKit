@@ -48,7 +48,7 @@ public struct ValueStepperField<Parser: SliderFieldParser>: View {
                     label: {
                         TextField(
                             text: $text,
-                            prompt: Text(title),
+                            prompt: Text(promptText),
                             label: {
                                 Text(title)
                                     .multilineTextAlignment(.trailing)
@@ -81,7 +81,8 @@ public struct ValueStepperField<Parser: SliderFieldParser>: View {
                     }
                 )
                 .fixedSize()
-            
+                .disabled(Parser.isMixedSentinel(value.value))
+
             if let errorMessage {
                 Text(errorMessage)
                     .font(.footnote)
@@ -89,7 +90,7 @@ public struct ValueStepperField<Parser: SliderFieldParser>: View {
             }
         }
         .onChange(of: value.value, initial: true) { oldValue, newValue in
-            text = Parser.formatValue(newValue)
+            text = expectedTextForCurrentValue(newValue)
             number = Parser.doubleValue(newValue)
         }
         .onChange(of: text) { oldValue, newValue in
@@ -98,10 +99,10 @@ public struct ValueStepperField<Parser: SliderFieldParser>: View {
             }
             // Skip the write-back when the text update was driven by a
             // change to `value.value` rather than user typing — detected
-            // by `text` matching `formatValue(value.value)`. See the
-            // longer rationale in `InlineSliderField` and the
+            // by `text` matching what we'd render programmatically.
+            // See the longer rationale in `InlineSliderField` and the
             // AppearancePanel mixed-opacity regression test.
-            if newValue == Parser.formatValue(value.value) {
+            if newValue == expectedTextForCurrentValue(value.value) {
                 errorMessage = nil
                 return
             }
@@ -150,6 +151,14 @@ public struct ValueStepperField<Parser: SliderFieldParser>: View {
 }
 
 private extension ValueStepperField {
+    func expectedTextForCurrentValue(_ value: Parser.Value) -> String {
+        Parser.isMixedSentinel(value) ? "" : Parser.formatValue(value)
+    }
+
+    var promptText: String {
+        Parser.isMixedSentinel(value.value) ? "Mixed" : title
+    }
+
     func beginTextEditingIfNecessary() {
         guard isFocused && !isTextEditing else {
             return
