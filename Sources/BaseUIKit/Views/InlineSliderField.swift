@@ -166,6 +166,22 @@ public struct InlineSliderField<Parser: SliderFieldParser>: View {
             guard newValue != oldValue else {
                 return
             }
+            // Skip the write-back when this text update was driven by a
+            // change to `value.value` rather than by user typing. The
+            // tell: the current text is exactly what `value.value`
+            // formats to. (If the user typed something that happens to
+            // format-match `value.value`, parsing it back would yield
+            // the same value anyway, so skipping is a no-op there too.)
+            //
+            // Without this guard, lossy format/parse round-trips of a
+            // multi-select sentinel (`Double.infinity` formatting to
+            // "0" then parsing back to `0`) write spurious values to
+            // the model. See `AppearancePanelUITests
+            // .testExtendingSelectionDoesNotClobberOpacity`.
+            if newValue == Parser.formatValue(value.value) {
+                errorMessage = nil
+                return
+            }
 
             switch Parser.parseValue(newValue) {
             case let .success(newValue):
@@ -180,6 +196,21 @@ public struct InlineSliderField<Parser: SliderFieldParser>: View {
         }
         .onChange(of: number) { oldValue, newValue in
             guard !newValue.isClose(to: oldValue, threshold: 1e-6) else {
+                return
+            }
+            // Skip the write-back when the slider state was driven by a
+            // change to `value.value` rather than the user dragging the
+            // slider. The tell: `number` matches what
+            // `resolvedSliderValue(for: value.value)` would compute.
+            // This catches the same lossy round-trip the text-onChange
+            // guard catches: when `value.value` is a non-finite
+            // multi-select sentinel, `resolvedSliderValue` collapses it
+            // to `range.lowerBound` (typically 0), and without this
+            // guard the slider's number-onChange would write that 0
+            // back to the model.
+            if newValue.isClose(
+                to: resolvedSliderValue(for: value.value), threshold: 1e-6)
+            {
                 return
             }
 

@@ -96,7 +96,16 @@ public struct ValueStepperField<Parser: SliderFieldParser>: View {
             guard newValue != oldValue else {
                 return
             }
-            
+            // Skip the write-back when the text update was driven by a
+            // change to `value.value` rather than user typing — detected
+            // by `text` matching `formatValue(value.value)`. See the
+            // longer rationale in `InlineSliderField` and the
+            // AppearancePanel mixed-opacity regression test.
+            if newValue == Parser.formatValue(value.value) {
+                errorMessage = nil
+                return
+            }
+
             switch Parser.parseValue(newValue) {
             case let .success(newValue):
                 if Parser.hasChanged(value.value, newValue) {
@@ -112,7 +121,17 @@ public struct ValueStepperField<Parser: SliderFieldParser>: View {
             guard !newValue.isClose(to: oldValue, threshold: 1e-6) else {
                 return
             }
-            
+            // Skip the write-back when the stepper state was driven by a
+            // change to `value.value` rather than the user clicking the
+            // stepper. Detection: `number` matches `doubleValue(value.value)`.
+            // See `InlineSliderField` for the longer rationale and the
+            // AppearancePanel mixed-opacity regression test.
+            if newValue.isClose(
+                to: Parser.doubleValue(value.value), threshold: 1e-6)
+            {
+                return
+            }
+
             let parsedValue = Parser.fromDoubleValue(newValue, existing: value.value)
             if Parser.hasChanged(value.value, parsedValue) {
                 value.onChange(parsedValue)

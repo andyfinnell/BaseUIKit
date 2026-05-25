@@ -43,6 +43,7 @@ public struct CanvasScrollView<ID: Hashable & Sendable>: NSViewRepresentable {
     private let onDimensionsChanged: ((CanvasViewDimensions) -> Void)?
     private let onEvent: ((Event) -> Void)?
     private let onScrollPositionChanged: ((CGPoint) -> Void)?
+    private let onFirstResponderChanged: ((Bool) -> Void)?
     private let contextMenu: (@MainActor (Point) -> BaseUIKit.ContextMenu?)?
 
     public init(
@@ -50,23 +51,27 @@ public struct CanvasScrollView<ID: Hashable & Sendable>: NSViewRepresentable {
         onDimensionsChanged: ((CanvasViewDimensions) -> Void)? = nil,
         onEvent: ((Event) -> Void)? = nil,
         onScrollPositionChanged: ((CGPoint) -> Void)? = nil,
+        onFirstResponderChanged: ((Bool) -> Void)? = nil,
         contextMenu: (@MainActor (Point) -> BaseUIKit.ContextMenu?)? = nil
     ) {
         self.database = database
         self.onDimensionsChanged = onDimensionsChanged
         self.onEvent = onEvent
         self.onScrollPositionChanged = onScrollPositionChanged
+        self.onFirstResponderChanged = onFirstResponderChanged
         self.contextMenu = contextMenu
     }
 
     public func makeNSView(context: Context) -> CanvasScrollViewImpl<ID> {
-        CanvasScrollViewImpl(
+        let impl = CanvasScrollViewImpl(
             database: database,
             onDimensionsChanged: onDimensionsChanged,
             onEvent: onEvent,
             onScrollPositionChanged: onScrollPositionChanged,
             contextMenuProvider: contextMenu
         )
+        impl.onFirstResponderChanged = onFirstResponderChanged
+        return impl
     }
 
     public func updateNSView(_ nsView: CanvasScrollViewImpl<ID>, context: Context) {
@@ -74,6 +79,7 @@ public struct CanvasScrollView<ID: Hashable & Sendable>: NSViewRepresentable {
         nsView.onDimensionsChanged = onDimensionsChanged
         nsView.onEvent = onEvent
         nsView.onScrollPositionChanged = onScrollPositionChanged
+        nsView.onFirstResponderChanged = onFirstResponderChanged
         nsView.contextMenuProvider = contextMenu
     }
 }

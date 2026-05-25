@@ -31,7 +31,7 @@ public extension CanvasDatabase {
     }
 
     /// Renders only the specified layers to an image, sized to their bounding box.
-    func renderElementsToImage(ids: Set<ID>, scale: CGFloat = 2) -> CGImage? {
+    func renderElementsToImage(ids: Set<ID>, scale: CGFloat) -> CGImage? {
         let bounds = effectBounds(ofIDs: Array(ids))
         guard bounds.width > 0, bounds.height > 0 else { return nil }
 

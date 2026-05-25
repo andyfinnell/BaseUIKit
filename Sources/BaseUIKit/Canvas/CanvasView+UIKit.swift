@@ -43,6 +43,7 @@ public struct CanvasScrollView<ID: Hashable & Sendable>: UIViewRepresentable {
     private let onDimensionsChanged: ((CanvasViewDimensions) -> Void)?
     private let onEvent: ((Event) -> Void)?
     private let onScrollPositionChanged: ((CGPoint) -> Void)?
+    private let onFirstResponderChanged: ((Bool) -> Void)?
     private let contextMenu: (@MainActor (Point) -> BaseUIKit.ContextMenu?)?
 
     public init(
@@ -50,15 +51,20 @@ public struct CanvasScrollView<ID: Hashable & Sendable>: UIViewRepresentable {
         onDimensionsChanged: ((CanvasViewDimensions) -> Void)? = nil,
         onEvent: ((Event) -> Void)? = nil,
         onScrollPositionChanged: ((CGPoint) -> Void)? = nil,
+        onFirstResponderChanged: ((Bool) -> Void)? = nil,
         contextMenu: (@MainActor (Point) -> BaseUIKit.ContextMenu?)? = nil
     ) {
         self.database = database
         self.onDimensionsChanged = onDimensionsChanged
         self.onEvent = onEvent
         self.onScrollPositionChanged = onScrollPositionChanged
+        self.onFirstResponderChanged = onFirstResponderChanged
         self.contextMenu = contextMenu
     }
 
+    // First-responder tracking is a macOS-only test signal; the stored
+    // `onFirstResponderChanged` is accepted on iOS for API parity but is not
+    // currently wired through to the UIKit responder chain.
     public func makeUIView(context: Context) -> CanvasScrollViewImpl<ID> {
         CanvasScrollViewImpl(
             database: database,

@@ -58,6 +58,11 @@ public final class CanvasScrollViewImpl<ID: Hashable & Sendable>: NSScrollView {
         set { canvasView.onEvent = newValue }
     }
 
+    var onFirstResponderChanged: ((Bool) -> Void)? {
+        get { canvasView.onFirstResponderChanged }
+        set { canvasView.onFirstResponderChanged = newValue }
+    }
+
     var contextMenuProvider: (@MainActor (Point) -> ContextMenu?)? {
         get { canvasView.contextMenuProvider }
         set { canvasView.contextMenuProvider = newValue }
@@ -121,6 +126,12 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
     private let database: Mutex<CanvasDatabase<ID>>
     var onDimensionsChanged: ((CanvasViewDimensions) -> Void)?
     var onEvent: ((Event) -> Void)?
+    /// Fires on the main thread whenever the view becomes or resigns first
+    /// responder. AppKit's `AXFocused` is unreliable for plain `NSView`
+    /// subclasses (see `CanvasScrollView` docs), so callers that need a
+    /// deterministic focus signal — UI tests in particular — observe this
+    /// instead.
+    var onFirstResponderChanged: ((Bool) -> Void)?
     private var trackingArea: NSTrackingArea?
     private var isCursorInside = false
     
@@ -203,13 +214,21 @@ public final class CanvasViewImpl<ID: Hashable & Sendable>: NSView {
     }
     
     public override var acceptsFirstResponder: Bool { true }
-    
+
     public override func becomeFirstResponder() -> Bool {
         super.becomeFirstResponder()
-        
+        onFirstResponderChanged?(true)
         return true
     }
-    
+
+    public override func resignFirstResponder() -> Bool {
+        let didResign = super.resignFirstResponder()
+        if didResign {
+            onFirstResponderChanged?(false)
+        }
+        return didResign
+    }
+
     public override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         if let e = makeEvent(from: event) {

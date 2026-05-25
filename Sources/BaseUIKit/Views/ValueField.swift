@@ -118,7 +118,16 @@ public struct ValueField<Parser: FieldParser>: View {
             guard newValue != oldValue else {
                 return
             }
-            
+            // Skip the write-back when the text update was driven by a
+            // change to `value.value` rather than user typing — detected
+            // by `text` matching `formatValue(value.value)`. See the
+            // longer rationale in `InlineSliderField` and the
+            // AppearancePanel mixed-opacity regression test.
+            if newValue == Parser.formatValue(value.value) {
+                errorMessage = nil
+                return
+            }
+
             switch Parser.parseValue(newValue) {
             case let .success(newValue):
                 if Parser.hasChanged(value.value, newValue) {
