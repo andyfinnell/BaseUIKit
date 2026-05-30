@@ -59,7 +59,12 @@ private extension Gradient {
         // TODO: maybe cache this?
         let colors = stops.map { $0.color.toCG }
         var locations = stops.map { CGFloat($0.offset) }
-        return CGGradient(colorsSpace: nil, colors: colors as CFArray, locations: &locations)
+        // Interpolate in sRGB to match WebKit / SVG 1.1 default
+        // (color-interpolation="sRGB"). Passing nil here gives device-RGB
+        // linear-light interpolation, which produces noticeably brighter
+        // midtones across red↔blue / yellow↔green transitions.
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)
+        return CGGradient(colorsSpace: colorSpace, colors: colors as CFArray, locations: &locations)
     }
 
     var spreadDrawingOptions: CGGradientDrawingOptions {
