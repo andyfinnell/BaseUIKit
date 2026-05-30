@@ -605,19 +605,7 @@ private extension CanvasText {
     }
 
     static func computeBaselineOffset(_ baseline: TextBaseline, runs: [TextRun]) -> Double {
-        var fontName = "Times"
-        var fontSize: CGFloat = 16.0
-        if let firstRun = runs.first {
-            for attribute in firstRun.attributes {
-                switch attribute {
-                case let .fontName(name): fontName = name
-                case let .fontSize(size): fontSize = size
-                case .textAlign, .letterSpacing, .wordSpacing: break
-                }
-            }
-        }
-
-        let ctFont = CTFontCreateWithName(fontName as CFString, fontSize, nil)
+        let ctFont = TextRun.resolvedFont(from: runs.first?.attributes ?? [])
         let ascent = Double(CTFontGetAscent(ctFont))
         let descent = Double(CTFontGetDescent(ctFont))
         let xHeight = Double(CTFontGetXHeight(ctFont))
@@ -871,6 +859,11 @@ private extension ProtectedCoreText {
     /// Centralizes the iteration pattern shared by `queued_cgPath`,
     /// `queued_drawColorGlyphs`, `queued_perRunPaths`, and
     /// `queued_perRunTextDecorationPaths`.
+    ///
+    /// `TextRun.dy` follows the SVG convention (positive = visually down).
+    /// CoreText line origins are in y-up coords, so dy is subtracted from
+    /// `accDy` here; consumers add `accDy` to `lineOrigin.y` and a downward
+    /// SVG dy ends up at a lower screen y after the renderer's y-flip.
     func queued_walkRuns(
         in frame: CTFrame,
         runs: [TextRun],
@@ -888,7 +881,7 @@ private extension ProtectedCoreText {
                     for i in (lastSeenRunIndex + 1)...runIndex
                     where i >= 0 && i < runs.count {
                         accDx += runs[i].dx
-                        accDy += runs[i].dy
+                        accDy -= runs[i].dy
                     }
                     lastSeenRunIndex = runIndex
                 }
@@ -1338,7 +1331,9 @@ private extension ProtectedCoreText {
 
     /// Computes the accumulated dy offset for each line in the CTFrame.
     /// Lines in CoreText don't account for TextRun dy values; this maps
-    /// each line's string position to the accumulated dy from all preceding runs.
+    /// each line's string position to the accumulated dy from all preceding
+    /// runs.  Subtracts run.dy because `TextRun.dy` is SVG-y-down while CT
+    /// line origins are y-up — see `queued_walkRuns` for the same flip.
     func queued_lineDyOffsets(lines: [CTLine], runs: [TextRun]) -> [CGFloat] {
         guard !runs.isEmpty else {
             return Array(repeating: 0, count: lines.count)
@@ -1348,7 +1343,7 @@ private extension ProtectedCoreText {
         var cumulativeDy = [CGFloat]()
         var accDy: CGFloat = 0
         for run in runs {
-            accDy += run.dy
+            accDy -= run.dy
             cumulativeDy.append(accDy)
         }
         return lines.map { line in
