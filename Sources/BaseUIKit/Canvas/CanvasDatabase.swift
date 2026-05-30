@@ -29,6 +29,14 @@ public final class CanvasDatabase<ID: Hashable & Sendable>: Sendable {
             locked_drawRect(&$0, rect, into: context)
         }
     }
+
+    /// Controls whether the canvas paints a checkerboard transparency
+    /// indicator behind areas without an explicit background color. The
+    /// editor wants the checkerboard for visibility; tests and exports
+    /// usually want it off so the canvas's true alpha shows through.
+    public func setRenderTransparentBackgroundIndicator(_ value: Bool) {
+        memberData.withLock { $0.renderTransparentBackground = value }
+    }
         
     func update(_ canvas: Canvas<ID>) {
         let (invalidates, delegate) = memberData.withLock {
