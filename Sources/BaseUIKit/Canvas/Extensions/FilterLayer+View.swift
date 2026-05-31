@@ -144,17 +144,54 @@ private extension FilterLayer {
     }
 
     func applyGaussianBlur(input: CIImage, stdDeviationX: Double, stdDeviationY: Double) -> CIImage? {
-        // CIGaussianBlur uses a single radius; average the two deviations
-        let stdDev = (stdDeviationX + stdDeviationY) / 2.0
         // CIGaussianBlur's inputRadius is the kernel radius in pixels, not the
         // Gaussian σ. Empirically, a kernel radius of ~3σ reproduces WebKit's
         // feGaussianBlur output (WebKit uses three box-blur passes whose
         // visible reach is 3σ).
-        let radius = stdDev * 3.0
+        let radiusMultiplier = 3.0
+
+        // No-op cases: SVG spec forbids σ < 0 and treats σ = 0 as no blur on
+        // that axis. Both zero means no blur at all.
+        if stdDeviationX <= 0 && stdDeviationY <= 0 {
+            return input
+        }
+
+        // Isotropic case: single CIGaussianBlur is sufficient.
+        let asymmetryEpsilon = 1.0e-6
+        if abs(stdDeviationX - stdDeviationY) < asymmetryEpsilon {
+            return applyIsotropicGaussianBlur(input: input, radius: stdDeviationX * radiusMultiplier)
+        }
+
+        // Anisotropic case: CIGaussianBlur is isotropic. Scale the smaller-σ
+        // axis up by the σ ratio so that an isotropic blur with the larger σ
+        // in the scaled image corresponds to (σ_x, σ_y) blur back in the
+        // original space — equivalent to separable 1D Gaussian convolutions.
+        // Clamp the scale ratio so a near-zero σ on one axis doesn't explode
+        // the intermediate image; ratios above the cap fall back to a heavily
+        // anisotropic but bounded approximation.
+        let maxScaleRatio = 100.0
+        let safeStdDeviationX = max(stdDeviationX, 1.0e-3)
+        let safeStdDeviationY = max(stdDeviationY, 1.0e-3)
+        let largerStdDev = max(safeStdDeviationX, safeStdDeviationY)
+        let scaleX = min(largerStdDev / safeStdDeviationX, maxScaleRatio)
+        let scaleY = min(largerStdDev / safeStdDeviationY, maxScaleRatio)
+        let radius = largerStdDev * radiusMultiplier
+
+        let scaled = input.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+        let filter = CIFilter.gaussianBlur()
+        filter.inputImage = scaled
+        filter.radius = Float(radius)
+        guard let blurred = filter.outputImage else { return nil }
+        let unscaled = blurred.transformed(
+            by: CGAffineTransform(scaleX: 1.0 / scaleX, y: 1.0 / scaleY)
+        )
+        return unscaled.cropped(to: input.extent)
+    }
+
+    func applyIsotropicGaussianBlur(input: CIImage, radius: Double) -> CIImage? {
         let filter = CIFilter.gaussianBlur()
         filter.inputImage = input
         filter.radius = Float(radius)
-        // Clamp to extent to avoid transparent edges from blur expansion
         return filter.outputImage?.cropped(to: input.extent)
     }
 
@@ -359,16 +396,52 @@ private extension FilterLayer {
     // MARK: - Remaining Filter Primitives
 
     func applyMorphology(input: CIImage, operator op: MorphologyOperator, radiusX: Double, radiusY: Double) -> CIImage? {
+        // No-op cases: SVG spec forbids negative radii and treats zero as
+        // "no morphology on that axis." Both zero means pass-through.
+        if radiusX <= 0 && radiusY <= 0 {
+            return input
+        }
+
+        // Isotropic case: CIMorphology{Minimum,Maximum} take a single radius.
+        let asymmetryEpsilon = 1.0e-6
+        if abs(radiusX - radiusY) < asymmetryEpsilon {
+            return applyIsotropicMorphology(input: input, operator: op, radius: radiusX)
+        }
+
+        // Anisotropic case: same scale-trick as anisotropic Gaussian. Scale
+        // the smaller-radius axis up by the radius ratio, apply isotropic
+        // morphology with the larger radius in scaled space, then scale
+        // back. Within a circular neighborhood of radius r in scaled space,
+        // the axis scaled by k=r_max/r_min has only r/k = r_min radius in
+        // the original — yielding effective (radiusX, radiusY) morphology.
+        let maxScaleRatio = 100.0
+        let safeRadiusX = max(radiusX, 1.0e-3)
+        let safeRadiusY = max(radiusY, 1.0e-3)
+        let largerRadius = max(safeRadiusX, safeRadiusY)
+        let scaleX = min(largerRadius / safeRadiusX, maxScaleRatio)
+        let scaleY = min(largerRadius / safeRadiusY, maxScaleRatio)
+
+        let scaled = input.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+        guard let morphed = applyIsotropicMorphology(input: scaled, operator: op, radius: largerRadius) else {
+            return nil
+        }
+        let unscaled = morphed.transformed(
+            by: CGAffineTransform(scaleX: 1.0 / scaleX, y: 1.0 / scaleY)
+        )
+        return unscaled.cropped(to: input.extent)
+    }
+
+    func applyIsotropicMorphology(input: CIImage, operator op: MorphologyOperator, radius: Double) -> CIImage? {
         switch op {
         case .erode:
             let filter = CIFilter.morphologyMinimum()
             filter.inputImage = input
-            filter.radius = Float(max(radiusX, radiusY))
+            filter.radius = Float(radius)
             return filter.outputImage?.cropped(to: input.extent)
         case .dilate:
             let filter = CIFilter.morphologyMaximum()
             filter.inputImage = input
-            filter.radius = Float(max(radiusX, radiusY))
+            filter.radius = Float(radius)
             return filter.outputImage?.cropped(to: input.extent)
         }
     }
