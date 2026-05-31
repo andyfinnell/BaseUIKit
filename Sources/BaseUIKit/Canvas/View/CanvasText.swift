@@ -42,7 +42,8 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
 
     init(layer: TextLayer<ID>) {
         self.id = layer.id
-        let effectiveTransform = Self.applyBaselineOffset(layer.baseline, to: layer.transform, runs: layer.runs)
+        let baselineFromTop = Double(coreText.baselineFromTopOfFrame(fromRuns: layer.runs, autosize: layer.autosize, width: layer.width))
+        let effectiveTransform = Self.applyBaselineOffset(layer.baseline, to: layer.transform, runs: layer.runs, baselineFromTop: baselineFromTop)
         self.memberData = Mutex(
             MemberData(
                 didDrawRect: .zero,
@@ -212,7 +213,8 @@ private extension CanvasText {
     func locked_typographicBounds(_ memberData: inout MemberData) -> CGRect {
         var localBounds = locked_structureBounds(&memberData)
         localBounds.size.height += locked_dyHeightExpansion(&memberData)
-        let baselineOffset = Self.computeBaselineOffset(memberData.baseline, runs: memberData.runs)
+        let baselineFromTop = Double(coreText.baselineFromTopOfFrame(fromRuns: memberData.runs, autosize: memberData.autosize, width: memberData.width))
+        let baselineOffset = Self.computeBaselineOffset(memberData.baseline, runs: memberData.runs, baselineFromTop: baselineFromTop)
         return localBounds.offsetBy(dx: 0, dy: baselineOffset)
     }
     
@@ -335,7 +337,8 @@ private extension CanvasText {
             // same offset in post-1/scale local-space units. Without this
             // dance the two diverge by `baselineOffset × (zoom − 1)` and
             // the text walks out of its pill as the user zooms in.
-            let baselineOffset = Self.computeBaselineOffset(memberData.baseline, runs: memberData.runs)
+            let baselineFromTop = Double(coreText.baselineFromTopOfFrame(fromRuns: memberData.runs, autosize: memberData.autosize, width: memberData.width))
+            let baselineOffset = Self.computeBaselineOffset(memberData.baseline, runs: memberData.runs, baselineFromTop: baselineFromTop)
             if baselineOffset != 0 {
                 context.translateBy(x: 0, y: -baselineOffset)
             }
@@ -492,7 +495,8 @@ private extension CanvasText {
             coreText.clear()
             didChange = true
         }
-        let effectiveTransform = Self.applyBaselineOffset(layer.baseline, to: layer.transform, runs: layer.runs)
+        let baselineFromTop = Double(coreText.baselineFromTopOfFrame(fromRuns: layer.runs, autosize: layer.autosize, width: layer.width))
+        let effectiveTransform = Self.applyBaselineOffset(layer.baseline, to: layer.transform, runs: layer.runs, baselineFromTop: baselineFromTop)
         if memberData.transform != effectiveTransform {
             memberData.transform = effectiveTransform
             didChange = true
@@ -559,7 +563,8 @@ private extension CanvasText {
         let docTransform = memberData.transform.toCG
         guard !memberData.shouldScaleWithZoom else { return docTransform }
         let safeScale = max(scale, 0.0001)
-        let baselineOffset = CGFloat(Self.computeBaselineOffset(memberData.baseline, runs: memberData.runs))
+        let baselineFromTop = Double(coreText.baselineFromTopOfFrame(fromRuns: memberData.runs, autosize: memberData.autosize, width: memberData.width))
+        let baselineOffset = CGFloat(Self.computeBaselineOffset(memberData.baseline, runs: memberData.runs, baselineFromTop: baselineFromTop))
         return docTransform
             .translatedBy(x: 0, y: -baselineOffset)
             .scaledBy(x: 1.0 / safeScale, y: 1.0 / safeScale)
@@ -598,13 +603,13 @@ private extension CanvasText {
         context.restoreGState()
     }
 
-    static func applyBaselineOffset(_ baseline: TextBaseline, to transform: Transform, runs: [TextRun]) -> Transform {
-        let offset = computeBaselineOffset(baseline, runs: runs)
+    static func applyBaselineOffset(_ baseline: TextBaseline, to transform: Transform, runs: [TextRun], baselineFromTop: Double) -> Transform {
+        let offset = computeBaselineOffset(baseline, runs: runs, baselineFromTop: baselineFromTop)
         guard offset != 0 else { return transform }
         return transform.concatenating(Transform(translateX: 0, y: offset))
     }
 
-    static func computeBaselineOffset(_ baseline: TextBaseline, runs: [TextRun]) -> Double {
+    static func computeBaselineOffset(_ baseline: TextBaseline, runs: [TextRun], baselineFromTop: Double) -> Double {
         let ctFont = TextRun.resolvedFont(from: runs.first?.attributes ?? [])
         let ascent = Double(CTFontGetAscent(ctFont))
         let descent = Double(CTFontGetDescent(ctFont))
@@ -612,11 +617,13 @@ private extension CanvasText {
         let capHeight = Double(CTFontGetCapHeight(ctFont))
 
         // The offset shifts from the SVG y-coordinate (the specified baseline position)
-        // to the top of the text frame. CoreText renders with the frame origin at the
-        // top-left, so we translate y upward by the distance from baseline to frame top.
+        // to the top of the text frame. For `.alphabetic` we use the framesetter's
+        // measured baseline-from-top so the rendered baseline lands exactly on the SVG
+        // y attribute — `ascent` alone undershoots for fonts whose CTFramesetter frame
+        // is padded by usWinAscent-style metrics (Helvetica, Arial, Times Roman, …).
         return switch baseline {
         case .alphabetic:
-            -ascent
+            -baselineFromTop
         case .top:
             0
         case .bottom:
@@ -662,6 +669,12 @@ private final class ProtectedCoreText: @unchecked Sendable {
     func dyHeightExpansion(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGFloat {
         queue.sync {
             queued_dyHeightExpansion(fromRuns: runs, autosize: autosize, width: width)
+        }
+    }
+
+    func baselineFromTopOfFrame(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGFloat {
+        queue.sync {
+            queued_baselineFromTopOfFrame(fromRuns: runs, autosize: autosize, width: width)
         }
     }
 
@@ -790,6 +803,23 @@ private extension ProtectedCoreText {
         let framesetter = CTFramesetterCreateWithAttributedString(queued_attributedString(fromRuns: runs))
         self.framesetterCache = framesetter
         return framesetter
+    }
+
+    // Distance from the frame's top edge to the first line's baseline. This is
+    // what positions text in SVG `y` space: CTFramesetter pads its suggested
+    // frame using usWinAscent-like metrics, so for many fonts (Helvetica,
+    // Times Roman, Arial) the baseline lands several points below `ascent`.
+    // Returns `CTFontGetAscent` as a fallback when runs are empty or the
+    // framesetter produces no lines.
+    func queued_baselineFromTopOfFrame(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGFloat {
+        let ctFont = TextRun.resolvedFont(from: runs.first?.attributes ?? [])
+        guard !runs.isEmpty else { return CTFontGetAscent(ctFont) }
+        let bounds = queued_framesetterBounds(fromRuns: runs, autosize: autosize, width: width)
+        let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
+        guard let firstOriginY = frame.lineOrigins.first?.y else {
+            return CTFontGetAscent(ctFont)
+        }
+        return bounds.height - firstOriginY
     }
 
     func queued_renderedTextRuns(
