@@ -82,6 +82,8 @@ private extension FilterLayer {
             return sourceAlpha
         case let .named(name):
             return named[name] ?? lastResult
+        case .previousResult:
+            return lastResult
         }
     }
 
@@ -143,7 +145,12 @@ private extension FilterLayer {
 
     func applyGaussianBlur(input: CIImage, stdDeviationX: Double, stdDeviationY: Double) -> CIImage? {
         // CIGaussianBlur uses a single radius; average the two deviations
-        let radius = (stdDeviationX + stdDeviationY) / 2.0
+        let stdDev = (stdDeviationX + stdDeviationY) / 2.0
+        // CIGaussianBlur's inputRadius is the kernel radius in pixels, not the
+        // Gaussian σ. Empirically, a kernel radius of ~3σ reproduces WebKit's
+        // feGaussianBlur output (WebKit uses three box-blur passes whose
+        // visible reach is 3σ).
+        let radius = stdDev * 3.0
         let filter = CIFilter.gaussianBlur()
         filter.inputImage = input
         filter.radius = Float(radius)
@@ -152,15 +159,21 @@ private extension FilterLayer {
     }
 
     func applyOffset(input: CIImage, dx: Double, dy: Double) -> CIImage? {
-        let transform = CGAffineTransform(translationX: dx, y: -dy) // CG y-axis is flipped
+        // SVG `dy` positive is "down" in user coords. The offscreen passed to
+        // the layer renders y-down (the canvas pipeline flips into y-down
+        // user space). When CIImage transforms that CGImage and the result
+        // is composited back with context.draw, positive Y here matches
+        // positive Y in display, so we pass dy through unchanged.
+        let transform = CGAffineTransform(translationX: dx, y: dy)
         return input.transformed(by: transform)
     }
 
     func applyFlood(color: BaseKit.Color, opacity: Double, extent: CGRect) -> CIImage? {
+        // CIColor takes straight (non-premultiplied) RGBA.
         let ciColor = CIColor(
-            red: color.red * opacity,
-            green: color.green * opacity,
-            blue: color.blue * opacity,
+            red: color.red,
+            green: color.green,
+            blue: color.blue,
             alpha: opacity
         )
         return CIImage(color: ciColor).cropped(to: extent)
