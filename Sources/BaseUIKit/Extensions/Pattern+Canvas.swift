@@ -3,7 +3,7 @@ import BaseKit
 
 public extension Pattern {
     func fill(_ context: CGContext, using fillRule: CGPathFillRule, renderingCache: RenderingCache? = nil) {
-        guard let pattern = pattern(renderingCache: renderingCache),
+        guard let pattern = pattern(in: context.ctm, renderingCache: renderingCache),
               let colorSpace = CGColorSpace(patternBaseSpace: nil) else {
             return
         }
@@ -19,7 +19,7 @@ public extension Pattern {
     }
 
     func stroke(_ context: CGContext, renderingCache: RenderingCache? = nil) {
-        guard let pattern = pattern(renderingCache: renderingCache),
+        guard let pattern = pattern(in: context.ctm, renderingCache: renderingCache),
               let colorSpace = CGColorSpace(patternBaseSpace: nil) else {
             return
         }
@@ -44,11 +44,12 @@ private extension Pattern {
         let pixelW = Int(ceil(tileWidth > 0 ? tileWidth : 1))
         let pixelH = Int(ceil(tileHeight > 0 ? tileHeight : 1))
 
-        // Flip Y: CG bottom-up → SVG top-down, plus apply contentTransform
-        var ct = CGAffineTransform(a: 1, b: 0, c: 0, d: -1,
-                                   tx: 0, ty: CGFloat(pixelH))
+        // No pre-flip. The tile image is rendered in CG's native bottom-up
+        // orientation; the pattern matrix (which encodes the caller's CTM,
+        // including the canvas Y-flip) places the content right-side-up.
+        var ct = CGAffineTransform.identity
         if let contentTransform {
-            ct = contentTransform.toCG.concatenating(ct)
+            ct = contentTransform.toCG
         }
 
         guard let image = shapes.renderToImage(width: pixelW, height: pixelH, contentTransform: ct) else {
@@ -58,7 +59,7 @@ private extension Pattern {
         return image
     }
 
-    func pattern(renderingCache: RenderingCache?) -> CGPattern? {
+    func pattern(in ctm: CGAffineTransform, renderingCache: RenderingCache?) -> CGPattern? {
         guard let image = tileImage(renderingCache: renderingCache) else {
             return nil
         }
@@ -88,9 +89,13 @@ private extension Pattern {
         // 1. Scale from pixel space to effective tile space
         // 2. Apply bounding box offset (if objectBoundingBox)
         // 3. Apply patternTransform
+        // 4. Compose with the caller's CTM. CGPattern interprets `matrix`
+        //    in raw CG (page) space, not in CTM-transformed user space,
+        //    so to make the lattice anchor at user (0, 0) — i.e., at the
+        //    SVG element's origin instead of at the canvas's raw-CG
+        //    origin — we encode the CTM here.
         var matrix = CGAffineTransform.identity
 
-        // Scale from pixel space to tile space
         if effectiveW != pixelW || effectiveH != pixelH {
             matrix = matrix.scaledBy(x: effectiveW / pixelW, y: effectiveH / pixelH)
         }
@@ -104,6 +109,8 @@ private extension Pattern {
         if let patternTransform {
             matrix = matrix.concatenating(patternTransform.toCG)
         }
+
+        matrix = matrix.concatenating(ctm)
 
         func drawPattern(info: UnsafeMutableRawPointer?, context: CGContext) {
             guard let info else {
