@@ -87,9 +87,9 @@ import Testing
         // x ∈ [0, 200], y ∈ [0, 200]. A rubber-band at (150, 150)-(190, 190) should
         // intersect the shape (well within the bezier's visual footprint).
         let rubber = CGRect(x: 150, y: 150, width: 40, height: 40)
-        #expect(path.intersects(rubber, atScale: 0.5))
+        #expect(!path.intersectingLayers(rubber, atScale: 0.5, including: { _ in true }).isEmpty)
         // At zoom=2, visual bounds are 50x50 (x ∈ [75, 125]); the same rubber misses.
-        #expect(!path.intersects(rubber, atScale: 2.0))
+        #expect(path.intersectingLayers(rubber, atScale: 2.0, including: { _ in true }).isEmpty)
     }
 
     @Test func pathContainedHonorsShouldScaleWithZoomFalse() {
@@ -108,10 +108,10 @@ import Testing
         // At zoom=2 (visual 50x50, doc bbox x ∈ [75, 125]), a rubber covering
         // (50, 50)-(150, 150) fully contains it.
         let rubber = CGRect(x: 50, y: 50, width: 100, height: 100)
-        #expect(path.contained(by: rubber, atScale: 2.0))
+        #expect(!path.containingLayers(rubber, atScale: 2.0, including: { _ in true }).isEmpty)
         // At zoom=0.5 (visual 200x200, doc bbox x ∈ [0, 200]), the same rubber
         // is too small.
-        #expect(!path.contained(by: rubber, atScale: 0.5))
+        #expect(path.containingLayers(rubber, atScale: 0.5, including: { _ in true }).isEmpty)
     }
 
     // MARK: - hitTest
@@ -132,13 +132,13 @@ import Testing
         // At zoom=2, visual rect is 50x50 centered on (100, 100). Click at
         // (124, 100) is just inside the right edge (125 - 1); (126, 100) is
         // just past it.
-        #expect(path.hitTest(CGPoint(x: 124, y: 100), atScale: 2.0))
-        #expect(!path.hitTest(CGPoint(x: 126, y: 100), atScale: 2.0))
+        #expect(path.hitLayer(at: CGPoint(x: 124, y: 100), atScale: 2.0, including: { _ in true }) != nil)
+        #expect(path.hitLayer(at: CGPoint(x: 126, y: 100), atScale: 2.0, including: { _ in true }) == nil)
 
         // At zoom=0.5, visual rect is 200x200 centered on (100, 100). (180, 100)
         // is inside; (210, 100) is outside.
-        #expect(path.hitTest(CGPoint(x: 180, y: 100), atScale: 0.5))
-        #expect(!path.hitTest(CGPoint(x: 210, y: 100), atScale: 0.5))
+        #expect(path.hitLayer(at: CGPoint(x: 180, y: 100), atScale: 0.5, including: { _ in true }) != nil)
+        #expect(path.hitLayer(at: CGPoint(x: 210, y: 100), atScale: 0.5, including: { _ in true }) == nil)
     }
 
     // MARK: - Stroke.effectiveBounds
@@ -237,8 +237,8 @@ import Testing
         // At zoom=2, doc-space bounds are half local-pt. Hit just inside the
         // right edge of the doc-space-visual extent.
         let docRightAtTwoX = 100 + localBounds.maxX / 2
-        #expect(text.hitTest(CGPoint(x: docRightAtTwoX - 1, y: 100), atScale: 2.0))
-        #expect(!text.hitTest(CGPoint(x: docRightAtTwoX + 5, y: 100), atScale: 2.0))
+        #expect(text.hitLayer(at: CGPoint(x: docRightAtTwoX - 1, y: 100), atScale: 2.0, including: { _ in true }) != nil)
+        #expect(text.hitLayer(at: CGPoint(x: docRightAtTwoX + 5, y: 100), atScale: 2.0, including: { _ in true }) == nil)
     }
 
     // MARK: - Integration
@@ -264,14 +264,14 @@ import Testing
         // The drawn intersect rect representing a 1000pt-wide doc viewport
         // should be considered overlapping.
         let viewport = CGRect(x: 0, y: 0, width: 1000, height: 1000)
-        #expect(path.intersects(viewport, atScale: 0.05))
+        #expect(!path.intersectingLayers(viewport, atScale: 0.05, including: { _ in true }).isEmpty)
 
         // Old (buggy) behavior would have computed a static 100x30 footprint
         // far enough off from the viewport that intersects might wrongly
         // pass for the wrong reason — confirm a viewport that *would* miss
         // the static bounds but catches the zoomed visual does intersect.
         let leftViewport = CGRect(x: -400, y: 400, width: 200, height: 200)
-        #expect(path.intersects(leftViewport, atScale: 0.05))
+        #expect(!path.intersectingLayers(leftViewport, atScale: 0.05, including: { _ in true }).isEmpty)
     }
 
     /// Regression for screenOffset composition: the previous task's

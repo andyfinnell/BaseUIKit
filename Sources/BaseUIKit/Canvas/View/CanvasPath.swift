@@ -67,7 +67,12 @@ extension CanvasPath: CanvasObject{
         }
     }
     
-    func hitTest(_ location: CGPoint, atScale scale: CGFloat) -> Bool {
+    func hitLayer(at location: CGPoint, atScale scale: CGFloat, including predicate: (ID) -> Bool) -> Layer<ID>? {
+        guard predicate(id), locked_hits(at: location, atScale: scale) else { return nil }
+        return layer
+    }
+
+    private func locked_hits(at location: CGPoint, atScale scale: CGFloat) -> Bool {
         memberData.withLock { memberData in
             // `renderedBezier` lives in doc-space without `screenOffset`
             // applied. The on-screen geometry is shifted by
@@ -111,16 +116,20 @@ extension CanvasPath: CanvasObject{
         }
     }
 
-    func intersects(_ rect: CGRect, atScale scale: CGFloat) -> Bool {
-        memberData.withLock {
+    func intersectingLayers(_ rect: CGRect, atScale scale: CGFloat, including predicate: (ID) -> Bool) -> [Layer<ID>] {
+        guard predicate(id) else { return [] }
+        let hits = memberData.withLock {
             locked_visualCgPath(&$0, atScale: scale).intersects(CGPath(rect: rect, transform: nil))
         }
+        return hits ? [layer] : []
     }
 
-    func contained(by rect: CGRect, atScale scale: CGFloat) -> Bool {
-        memberData.withLock {
+    func containingLayers(_ rect: CGRect, atScale scale: CGFloat, including predicate: (ID) -> Bool) -> [Layer<ID>] {
+        guard predicate(id) else { return [] }
+        let inside = memberData.withLock {
             rect.contains(locked_visualCgPath(&$0, atScale: scale).boundingBoxOfPath)
         }
+        return inside ? [layer] : []
     }
 
     var structurePath: BezierPath {
@@ -230,44 +239,22 @@ private extension CanvasPath {
             return
         }
 
-        context.saveGState()
-
-        let needsTransparencyLayer = memberData.opacity < 1.0 || memberData.blendMode != .normal
-        if needsTransparencyLayer {
-            context.setAlpha(memberData.opacity)
-            context.setBlendMode(memberData.blendMode.toCG)
-            context.beginTransparencyLayer(auxiliaryInfo: nil)
+        if memberData.mask != nil, memberData.cachedMaskImage == nil {
+            memberData.cachedMaskImage = memberData.mask?.renderToMaskImage(scale: scale)
         }
 
-        let affineTransform = memberData.transform.toCG
-        context.concatenate(affineTransform)
-
-        if let clipPath = memberData.clipPath {
-            clipPath.path.set(in: context)
-            context.clip(using: clipPath.fillRule.toCG)
+        let effects = LayerEffects(
+            opacity: memberData.opacity,
+            blendMode: memberData.blendMode,
+            transform: memberData.transform,
+            clipPath: memberData.clipPath,
+            mask: memberData.mask,
+            maskImage: memberData.cachedMaskImage,
+            filter: memberData.filter
+        )
+        effects.draw(in: context, atScale: scale, renderingCache: renderingCache) { target in
+            locked_drawSelf(&memberData, in: rect, into: target, atScale: scale, renderingCache: renderingCache)
         }
-
-        if let mask = memberData.mask {
-            if memberData.cachedMaskImage == nil {
-                memberData.cachedMaskImage = mask.renderToMaskImage(scale: scale)
-            }
-            if let maskImage = memberData.cachedMaskImage {
-                context.clip(to: mask.bounds.toCG, mask: maskImage)
-            }
-        }
-
-        if let filter = memberData.filter {
-            filter.drawFiltered(into: context, scale: scale, renderingCache: renderingCache) { targetContext in
-                locked_drawSelf(&memberData, in: rect, into: targetContext, atScale: scale, renderingCache: renderingCache)
-            }
-        } else {
-            locked_drawSelf(&memberData, in: rect, into: context, atScale: scale, renderingCache: renderingCache)
-        }
-
-        if needsTransparencyLayer {
-            context.endTransparencyLayer()
-        }
-        context.restoreGState()
     }
 
     func locked_drawSelf(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {

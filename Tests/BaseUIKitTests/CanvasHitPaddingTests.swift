@@ -17,13 +17,10 @@ import Testing
     @Test func pathHitPaddingZeroPreservesBaselineBehavior() {
         let path = makeFilledRectPath(anchor: Self.anchor, hitPadding: 0)
         // Inside the 10x10 rect centered on anchor.
-        #expect(path.hitTest(Self.anchor, atScale: 1.0))
+        #expect(path.hitLayer(at: Self.anchor, atScale: 1.0, including: { _ in true }) != nil)
         // Two pt outside the rect's right edge.
         #expect(
-            !path.hitTest(
-                CGPoint(x: Self.anchor.x + Self.markerSize / 2 + 2, y: Self.anchor.y),
-                atScale: 1.0
-            )
+            path.hitLayer(at: CGPoint(x: Self.anchor.x + Self.markerSize / 2 + 2, y: Self.anchor.y), atScale: 1.0, including: { _ in true }) == nil
         )
     }
 
@@ -33,17 +30,11 @@ import Testing
         let path = makeFilledRectPath(anchor: Self.anchor, hitPadding: 5)
         // 4pt outside the right edge: padded hit-test should succeed.
         #expect(
-            path.hitTest(
-                CGPoint(x: Self.anchor.x + Self.markerSize / 2 + 4, y: Self.anchor.y),
-                atScale: 1.0
-            )
+            path.hitLayer(at: CGPoint(x: Self.anchor.x + Self.markerSize / 2 + 4, y: Self.anchor.y), atScale: 1.0, including: { _ in true }) != nil
         )
         // 6pt outside: still misses (just past padding).
         #expect(
-            !path.hitTest(
-                CGPoint(x: Self.anchor.x + Self.markerSize / 2 + 6, y: Self.anchor.y),
-                atScale: 1.0
-            )
+            path.hitLayer(at: CGPoint(x: Self.anchor.x + Self.markerSize / 2 + 6, y: Self.anchor.y), atScale: 1.0, including: { _ in true }) == nil
         )
     }
 
@@ -57,9 +48,9 @@ import Testing
             hitPadding: 5
         )
         // Vertically 4pt off the line: hits (within 0.5 + 5).
-        #expect(path.hitTest(CGPoint(x: 50, y: 54), atScale: 1.0))
+        #expect(path.hitLayer(at: CGPoint(x: 50, y: 54), atScale: 1.0, including: { _ in true }) != nil)
         // 7pt off: misses.
-        #expect(!path.hitTest(CGPoint(x: 50, y: 57), atScale: 1.0))
+        #expect(path.hitLayer(at: CGPoint(x: 50, y: 57), atScale: 1.0, including: { _ in true }) == nil)
     }
 
     /// Padding is screen-pt, not doc-pt: at zoom 2.0 the doc-space radius is
@@ -74,9 +65,9 @@ import Testing
         )
         let scale: CGFloat = 2.0
         // 2pt doc-off (= 4pt screen): hits (within 0.5 + 5/2 = 3 doc-pt).
-        #expect(path.hitTest(CGPoint(x: 50, y: 52), atScale: scale))
+        #expect(path.hitLayer(at: CGPoint(x: 50, y: 52), atScale: scale, including: { _ in true }) != nil)
         // 4pt doc-off (= 8pt screen): misses (beyond 0.5 + 2.5 = 3 doc-pt).
-        #expect(!path.hitTest(CGPoint(x: 50, y: 54), atScale: scale))
+        #expect(path.hitLayer(at: CGPoint(x: 50, y: 54), atScale: scale, including: { _ in true }) == nil)
     }
 
     // MARK: - PathLayer.hitOnly
@@ -105,7 +96,7 @@ import Testing
         #expect(isBitmapAllWhite(context: context, size: bitmapSize))
 
         // But the layer remains hit-testable.
-        #expect(path.hitTest(Self.anchor, atScale: 1.0))
+        #expect(path.hitLayer(at: Self.anchor, atScale: 1.0, including: { _ in true }) != nil)
 
         // willDrawRect stays .zero even after drawing.
         #expect(path.willDrawRect == .zero)
@@ -122,8 +113,8 @@ import Testing
             hitOnly: true
         )
         #expect(path.willDrawRect == .zero)
-        #expect(path.hitTest(CGPoint(x: 50, y: 54), atScale: 1.0))
-        #expect(!path.hitTest(CGPoint(x: 50, y: 56), atScale: 1.0))
+        #expect(path.hitLayer(at: CGPoint(x: 50, y: 54), atScale: 1.0, including: { _ in true }) != nil)
+        #expect(path.hitLayer(at: CGPoint(x: 50, y: 56), atScale: 1.0, including: { _ in true }) == nil)
 
         // Nothing drawn.
         let bitmapSize = 64
@@ -156,11 +147,11 @@ import Testing
 
         // 4pt past the shifted right edge: still hits via padding.
         #expect(
-            path.hitTest(CGPoint(x: visualRight + 4, y: Self.anchor.y), atScale: scale)
+            path.hitLayer(at: CGPoint(x: visualRight + 4, y: Self.anchor.y), atScale: scale, including: { _ in true }) != nil
         )
         // 6pt past the shifted right edge: beyond padding, misses.
         #expect(
-            !path.hitTest(CGPoint(x: visualRight + 6, y: Self.anchor.y), atScale: scale)
+            path.hitLayer(at: CGPoint(x: visualRight + 6, y: Self.anchor.y), atScale: scale, including: { _ in true }) == nil
         )
     }
 
@@ -178,9 +169,9 @@ import Testing
 
         let padded = makeTextCanvas(anchor: Self.anchor, hitPadding: 5)
         // 3pt past the unpadded right edge: hits with padding.
-        #expect(padded.hitTest(CGPoint(x: visualRight + 3, y: Self.anchor.y), atScale: 1.0))
+        #expect(padded.hitLayer(at: CGPoint(x: visualRight + 3, y: Self.anchor.y), atScale: 1.0, including: { _ in true }) != nil)
         // Without padding, that same point misses.
-        #expect(!baseline.hitTest(CGPoint(x: visualRight + 3, y: Self.anchor.y), atScale: 1.0))
+        #expect(baseline.hitLayer(at: CGPoint(x: visualRight + 3, y: Self.anchor.y), atScale: 1.0, including: { _ in true }) == nil)
     }
 
     @Test func textHitPaddingIsScreenPtAcrossZoom() {
@@ -194,9 +185,9 @@ import Testing
         // At 2x zoom, hitPadding=5 screen-pt ≈ 2.5 doc-pt.
         let padded = makeTextCanvas(anchor: Self.anchor, hitPadding: 5)
         // 2pt doc past the right edge (= 4pt screen): within padding.
-        #expect(padded.hitTest(CGPoint(x: visualRight + 2, y: Self.anchor.y), atScale: 2.0))
+        #expect(padded.hitLayer(at: CGPoint(x: visualRight + 2, y: Self.anchor.y), atScale: 2.0, including: { _ in true }) != nil)
         // 4pt doc past (= 8pt screen): beyond padding.
-        #expect(!padded.hitTest(CGPoint(x: visualRight + 4, y: Self.anchor.y), atScale: 2.0))
+        #expect(padded.hitLayer(at: CGPoint(x: visualRight + 4, y: Self.anchor.y), atScale: 2.0, including: { _ in true }) == nil)
     }
 }
 

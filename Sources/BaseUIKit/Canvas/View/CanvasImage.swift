@@ -57,24 +57,24 @@ extension CanvasImage: CanvasObject {
         }
     }
 
-    func hitTest(_ location: CGPoint, atScale scale: CGFloat) -> Bool {
-        memberData.withLock {
-            locked_globalBounds(&$0).contains(location)
-        }
-    }
-    
-    func intersects(_ rect: CGRect, atScale scale: CGFloat) -> Bool {
-        // Images always scale with zoom — `scale` doesn't change the
-        // doc-space footprint.
-        memberData.withLock {
-            locked_globalBounds(&$0).intersects(rect)
-        }
+    func hitLayer(at location: CGPoint, atScale scale: CGFloat, including predicate: (ID) -> Bool) -> Layer<ID>? {
+        guard predicate(id) else { return nil }
+        let hits = memberData.withLock { locked_globalBounds(&$0).contains(location) }
+        return hits ? layer : nil
     }
 
-    func contained(by rect: CGRect, atScale scale: CGFloat) -> Bool {
-        memberData.withLock {
-            rect.contains(locked_globalBounds(&$0))
-        }
+    func intersectingLayers(_ rect: CGRect, atScale scale: CGFloat, including predicate: (ID) -> Bool) -> [Layer<ID>] {
+        guard predicate(id) else { return [] }
+        // Images always scale with zoom — `scale` doesn't change the
+        // doc-space footprint.
+        let hits = memberData.withLock { locked_globalBounds(&$0).intersects(rect) }
+        return hits ? [layer] : []
+    }
+
+    func containingLayers(_ rect: CGRect, atScale scale: CGFloat, including predicate: (ID) -> Bool) -> [Layer<ID>] {
+        guard predicate(id) else { return [] }
+        let inside = memberData.withLock { rect.contains(locked_globalBounds(&$0)) }
+        return inside ? [layer] : []
     }
     
     var structurePath: BezierPath {

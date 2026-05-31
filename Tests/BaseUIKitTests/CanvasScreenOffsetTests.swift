@@ -106,11 +106,11 @@ import Testing
             // The fill rect sits at doc anchor + screenOffset/scale.
             let visualX = Self.anchor.x + CGFloat(offset.dx) / CGFloat(scale)
             #expect(
-                path.hitTest(CGPoint(x: visualX, y: Self.anchor.y), atScale: CGFloat(scale)),
+                path.hitLayer(at: CGPoint(x: visualX, y: Self.anchor.y), atScale: CGFloat(scale), including: { _ in true }) != nil,
                 "scale \(scale): visual location should hit"
             )
             #expect(
-                !path.hitTest(Self.anchor, atScale: CGFloat(scale)),
+                path.hitLayer(at: Self.anchor, atScale: CGFloat(scale), including: { _ in true }) == nil,
                 "scale \(scale): the raw anchor should miss (geometry has shifted off it)"
             )
         }
@@ -126,7 +126,7 @@ import Testing
             )
             let visualX = Self.anchor.x + CGFloat(offset.dx) / CGFloat(scale)
             #expect(
-                text.hitTest(CGPoint(x: visualX, y: Self.anchor.y), atScale: CGFloat(scale)),
+                text.hitLayer(at: CGPoint(x: visualX, y: Self.anchor.y), atScale: CGFloat(scale), including: { _ in true }) != nil,
                 "scale \(scale): visual location should hit"
             )
         }

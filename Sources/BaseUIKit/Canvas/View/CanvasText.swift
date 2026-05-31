@@ -90,7 +90,12 @@ extension CanvasText: CanvasObject {
         }
     }
 
-    func hitTest(_ location: CGPoint, atScale scale: CGFloat) -> Bool {
+    func hitLayer(at location: CGPoint, atScale scale: CGFloat, including predicate: (ID) -> Bool) -> Layer<ID>? {
+        guard predicate(id), locked_hits(at: location, atScale: scale) else { return nil }
+        return layer
+    }
+
+    private func locked_hits(at location: CGPoint, atScale scale: CGFloat) -> Bool {
         memberData.withLock {
             let bounds = locked_structureBounds(&$0)
             let contentBounds = bounds.applying(locked_effectiveTransform(&$0, atScale: scale))
@@ -115,20 +120,24 @@ extension CanvasText: CanvasObject {
         }
     }
 
-    func intersects(_ rect: CGRect, atScale scale: CGFloat) -> Bool {
-        memberData.withLock {
+    func intersectingLayers(_ rect: CGRect, atScale scale: CGFloat, including predicate: (ID) -> Bool) -> [Layer<ID>] {
+        guard predicate(id) else { return [] }
+        let hits = memberData.withLock {
             let bounds = locked_structureBounds(&$0)
             let contentBounds = bounds.applying(locked_effectiveTransform(&$0, atScale: scale))
             return contentBounds.intersects(rect)
         }
+        return hits ? [layer] : []
     }
 
-    func contained(by rect: CGRect, atScale scale: CGFloat) -> Bool {
-        memberData.withLock {
+    func containingLayers(_ rect: CGRect, atScale scale: CGFloat, including predicate: (ID) -> Bool) -> [Layer<ID>] {
+        guard predicate(id) else { return [] }
+        let inside = memberData.withLock {
             let bounds = locked_structureBounds(&$0)
             let contentBounds = bounds.applying(locked_effectiveTransform(&$0, atScale: scale))
             return rect.contains(contentBounds)
         }
+        return inside ? [layer] : []
     }
 
     var structurePath: BezierPath {
@@ -303,30 +312,15 @@ private extension CanvasText {
             return
         }
 
-        context.saveGState()
-
-        let needsTransparencyLayer = memberData.opacity < 1.0 || memberData.blendMode != .normal
-        if needsTransparencyLayer {
-            context.setAlpha(memberData.opacity)
-            context.setBlendMode(memberData.blendMode.toCG)
-            context.beginTransparencyLayer(auxiliaryInfo: nil)
+        let effects = LayerEffects(
+            opacity: memberData.opacity,
+            blendMode: memberData.blendMode,
+            transform: memberData.transform,
+            filter: memberData.filter
+        )
+        effects.draw(in: context, atScale: scale, renderingCache: renderingCache) { target in
+            locked_drawSelf(&memberData, in: rect, into: target, atScale: scale, renderingCache: renderingCache)
         }
-
-        let affineTransform = memberData.transform.toCG
-        context.concatenate(affineTransform)
-
-        if let filter = memberData.filter {
-            filter.drawFiltered(into: context, scale: scale, renderingCache: renderingCache) { targetContext in
-                locked_drawSelf(&memberData, in: rect, into: targetContext, atScale: scale, renderingCache: renderingCache)
-            }
-        } else {
-            locked_drawSelf(&memberData, in: rect, into: context, atScale: scale, renderingCache: renderingCache)
-        }
-
-        if needsTransparencyLayer {
-            context.endTransparencyLayer()
-        }
-        context.restoreGState()
     }
 
     func locked_drawSelf(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {

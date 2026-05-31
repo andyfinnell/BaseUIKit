@@ -280,8 +280,19 @@ private extension CanvasDatabase {
     }
     
     struct MemberData: Sendable {
+        /// Top-level layers in z-order (back to front). Group layers
+        /// appear here, but their children do not — children are reached
+        /// via the group's `children: [ID]` and resolved through
+        /// `objectById`.
         var objectsInOrder = [any CanvasObject<ID>]()
+        /// Every layer indexed by ID, including children of groups. The
+        /// universal lookup map; existing call sites that ask "is there
+        /// a layer with this ID?" don't need to know about hierarchy.
         var objectById = [ID: any CanvasObject<ID>]()
+        /// Child ID → parent group ID, for fast parent lookup during
+        /// delete / reorder / cycle-detection. Top-level layers are not
+        /// in this map.
+        var parentByChildID = [ID: ID]()
         var generatedLayersByComputedID = [ID: Generated]() // ComputedLayer.id -> generated IDs
         var computedLayersBasedOnID = [ID: [ComputedLayer<ID>]]() // Dependent layer id -> ComputedLayer
         var width: Double
@@ -429,12 +440,9 @@ private extension CanvasDatabase {
     }
     
     func locked_effectBounds(_ memberData: inout MemberData, ofIDs ids: [ID]) -> Rect {
-        let cgRect = ids.compactMap { memberData.objectById[$0] }
-            .map { $0.willDrawRect }
-            .reduce(CGRect.zero) { sum, rect in
-                (sum == .zero) ? rect : sum.union(rect)
-            }
-        return Rect(cgRect)
+        let willDrawRects = ids.compactMap { memberData.objectById[$0]?.willDrawRect }
+        let union = willDrawRects.reduce(CGRect?.none) { $0?.union($1) ?? $1 }
+        return Rect(union ?? .zero)
     }
 
     func locked_drawRect(_ memberData: inout MemberData, _ rect: CGRect, into context: CGContext) {
@@ -458,7 +466,7 @@ private extension CanvasDatabase {
 
         context.restoreGState()
     }
-        
+
     func locked_update(_ memberData: inout MemberData, _ canvas: Canvas<ID>, invalidates: inout Set<CanvasInvalidation>) {
         if memberData.width != canvas.width {
             memberData.width = canvas.width
@@ -576,32 +584,30 @@ private extension CanvasDatabase {
     ) -> [Layer<ID>] {
         let cgLocation = location.toCG
         let scale = memberData.zoom
-        let foundObject = memberData.objectsInOrder.reversed().first { object in
-            predicate(object.id) && object.hitTest(cgLocation, atScale: scale)
+        // Walk top-level objects topmost-first; the first non-nil hit
+        // wins. Groups recurse internally via their own `hitLayer`.
+        for object in memberData.objectsInOrder.reversed() {
+            if let hit = object.hitLayer(at: cgLocation, atScale: scale, including: predicate) {
+                return [hit]
+            }
         }
-        if let foundObject {
-            return [foundObject.layer]
-        } else {
-            return []
-        }
+        return []
     }
-    
+
     func locked_layersIntersectingBounds(_ memberData: inout MemberData, _ bounds: Rect, including predicate: (ID) -> Bool) -> [Layer<ID>] {
         let cgBounds = bounds.toCG
         let scale = memberData.zoom
-        return memberData.objectsInOrder
-            .filter { predicate($0.id) }
-            .filter { $0.intersects(cgBounds, atScale: scale) }
-            .map { $0.layer }
+        return memberData.objectsInOrder.flatMap {
+            $0.intersectingLayers(cgBounds, atScale: scale, including: predicate)
+        }
     }
 
     func locked_layersContainingBounds(_ memberData: inout MemberData, _ bounds: Rect, including predicate: (ID) -> Bool) -> [Layer<ID>] {
         let cgBounds = bounds.toCG
         let scale = memberData.zoom
-        return memberData.objectsInOrder
-            .filter { predicate($0.id) }
-            .filter { $0.contained(by: cgBounds, atScale: scale) }
-            .map { $0.layer }
+        return memberData.objectsInOrder.flatMap {
+            $0.containingLayers(cgBounds, atScale: scale, including: predicate)
+        }
     }
 
     func locked_apply(_ memberData: inout MemberData, _ change: CanvasChange<ID>, invalidates: inout Set<CanvasInvalidation>) {
@@ -759,7 +765,7 @@ private extension CanvasDatabase {
     func locked_upsertLayer(
         _ memberData: inout MemberData,
         _ layer: Layer<ID>,
-        at index: CanvasIndex,
+        at index: CanvasIndex<ID>,
         invalidates: inout Set<CanvasInvalidation>
     ) {
         if let existing = memberData.objectById[layer.id] {
@@ -768,6 +774,12 @@ private extension CanvasDatabase {
                 from: existing.updateLayer(layer),
                 into: &invalidates
             )
+            // Group's child membership may have changed in the new
+            // layer value — re-resolve child refs from the (possibly
+            // updated) children IDs.
+            if case .group = layer {
+                locked_syncGroupChildren(&memberData, groupID: layer.id)
+            }
             locked_updateComputedLayers(&memberData, basedOn: layer, invalidates: &invalidates)
         } else if let canvasObject = make(from: layer) {
             locked_insert(&memberData, canvasObject, at: index, invalidates: &invalidates)
@@ -824,7 +836,7 @@ private extension CanvasDatabase {
         _ memberData: inout MemberData,
         _ computedLayers: [Layer<ID>],
         for layer: ComputedLayer<ID>,
-        at index: CanvasIndex?,
+        at index: CanvasIndex<ID>?,
         invalidates: inout Set<CanvasInvalidation>
     ) {
         let previousObjects = memberData
@@ -938,12 +950,79 @@ private extension CanvasDatabase {
         }
     }
     
-    func locked_reorderLayer(_ memberData: inout MemberData, fromID: ID, to toIndex: CanvasIndex, invalidates: inout Set<CanvasInvalidation>) {
-        if let object = memberData.objectById[fromID] {
-            locked_invalidateObject(&memberData, object, into: &invalidates)
+    func locked_reorderLayer(_ memberData: inout MemberData, fromID: ID, to toIndex: CanvasIndex<ID>, invalidates: inout Set<CanvasInvalidation>) {
+        guard let object = memberData.objectById[fromID] else { return }
+        locked_invalidateObject(&memberData, object, into: &invalidates)
+
+        let fromParent = memberData.parentByChildID[fromID]
+        let toParent = toIndex.parent
+
+        if fromParent == toParent {
+            // Same container — just move within its list.
+            if let parentID = fromParent {
+                guard let parent = memberData.objectById[parentID],
+                      case let .group(parentLayer) = parent.layer
+                else { return }
+                var children = parentLayer.children
+                guard let fromPosition = children.firstIndex(of: fromID) else { return }
+                let resolvedTo: Int
+                switch toIndex.position {
+                case .last: resolvedTo = children.count
+                case let .at(requestedPosition): resolvedTo = min(max(requestedPosition, 0), children.count)
+                }
+                children.reorder(from: fromPosition, to: resolvedTo)
+                locked_transformLayerInvalidateRect(
+                    &memberData,
+                    from: parent.updateLayer(.group(parentLayer.replacingChildren(children))),
+                    into: &invalidates
+                )
+                locked_syncGroupChildren(&memberData, groupID: parentID)
+            } else if let fromPosition = memberData.objectsInOrder.firstIndex(where: { $0.id == fromID }) {
+                memberData.objectsInOrder.reorder(from: fromPosition, to: locked_resolveTopLevel(&memberData, toIndex))
+            }
+        } else {
+            // Re-parent: pop from old container, push into new.
+            // Cycle check before we touch state.
+            if let newParentID = toParent {
+                if newParentID == fromID
+                    || locked_isAncestor(&memberData, ancestorID: fromID, ofChild: newParentID)
+                {
+                    return
+                }
+            }
+
+            locked_detachFromContainer(&memberData, id: fromID, invalidates: &invalidates)
+
+            // Re-insert using the index (which will route through the
+            // parented branch automatically).
+            locked_insert(&memberData, object, at: toIndex, invalidates: &invalidates)
         }
-        if let fromIndex = memberData.objectsInOrder.firstIndex(where: { $0.id == fromID }) {
-            memberData.objectsInOrder.reorder(from: fromIndex, to: locked_resolve(&memberData, toIndex))
+    }
+
+    /// Remove `id` from whichever container holds it (top-level or
+    /// a parent group's children list) without removing it from
+    /// `objectById`. Used by reorder for the re-parent path so the
+    /// CanvasObject identity is preserved across the move.
+    func locked_detachFromContainer(
+        _ memberData: inout MemberData,
+        id: ID,
+        invalidates: inout Set<CanvasInvalidation>
+    ) {
+        if let parentID = memberData.parentByChildID[id] {
+            if let parent = memberData.objectById[parentID],
+               case let .group(parentLayer) = parent.layer
+            {
+                let newChildren = parentLayer.children.filter { $0 != id }
+                locked_transformLayerInvalidateRect(
+                    &memberData,
+                    from: parent.updateLayer(.group(parentLayer.replacingChildren(newChildren))),
+                    into: &invalidates
+                )
+                locked_syncGroupChildren(&memberData, groupID: parentID)
+            }
+            memberData.parentByChildID.removeValue(forKey: id)
+        } else if let position = memberData.objectsInOrder.firstIndex(where: { $0.id == id }) {
+            memberData.objectsInOrder.remove(at: position)
         }
     }
     
@@ -1034,27 +1113,101 @@ private extension CanvasDatabase {
     func locked_insert(
         _ memberData: inout MemberData,
         _ object: any CanvasObject<ID>,
-        at index: CanvasIndex,
+        at index: CanvasIndex<ID>,
         invalidates: inout Set<CanvasInvalidation>
     ) {
-        let trueIndex = locked_resolve(&memberData, index)
-        memberData.objectsInOrder.insert(object, at: trueIndex)
-        memberData.objectById[object.id] = object
-        locked_invalidateRect(&memberData, object.willDrawRect, into: &invalidates)
+        if let parentID = index.parent {
+            // Parented insert: the new object joins a group's children
+            // list rather than the top-level z-order. The parent must
+            // already exist (LayoutEngine emits parents before
+            // children; a missing parent here is a programmer error so
+            // we silently drop).
+            guard let parent = memberData.objectById[parentID],
+                  case let .group(parentLayer) = parent.layer
+            else { return }
+
+            // Cycle detection: the new object's ID cannot equal the
+            // parent's ID or appear in the parent's ancestor chain.
+            if object.id == parentID
+                || locked_isAncestor(&memberData, ancestorID: object.id, ofChild: parentID)
+            {
+                return
+            }
+
+            var newChildren = parentLayer.children
+            let resolvedPosition: Int
+            switch index.position {
+            case .last:
+                resolvedPosition = newChildren.count
+            case let .at(requestedPosition):
+                resolvedPosition = min(max(requestedPosition, 0), newChildren.count)
+            }
+            newChildren.insert(object.id, at: resolvedPosition)
+
+            memberData.objectById[object.id] = object
+            memberData.parentByChildID[object.id] = parentID
+            locked_transformLayerInvalidateRect(
+                &memberData,
+                from: parent.updateLayer(.group(parentLayer.replacingChildren(newChildren))),
+                into: &invalidates
+            )
+            locked_syncGroupChildren(&memberData, groupID: parentID)
+            locked_invalidateRect(&memberData, object.willDrawRect, into: &invalidates)
+        } else {
+            let trueIndex = locked_resolveTopLevel(&memberData, index)
+            memberData.objectsInOrder.insert(object, at: trueIndex)
+            memberData.objectById[object.id] = object
+            // If the inserted object is itself a group, populate its
+            // child refs from its declared children IDs (any that exist
+            // yet). Subsequent child upserts will keep it in sync.
+            if case .group = object.layer {
+                locked_syncGroupChildren(&memberData, groupID: object.id)
+            }
+            locked_invalidateRect(&memberData, object.willDrawRect, into: &invalidates)
+        }
     }
-    
-    func locked_resolve(_ memberData: inout MemberData, _ index: CanvasIndex?, usingExistingObjects existingObjects: [any CanvasObject]) -> Int {
+
+    /// Walks `parentByChildID` upward to check whether `ancestorID` is
+    /// an ancestor of `childID`. Used to reject cycles when inserting
+    /// into a group.
+    func locked_isAncestor(_ memberData: inout MemberData, ancestorID: ID, ofChild childID: ID) -> Bool {
+        var cursor: ID? = memberData.parentByChildID[childID]
+        while let current = cursor {
+            if current == ancestorID { return true }
+            cursor = memberData.parentByChildID[current]
+        }
+        return false
+    }
+
+    /// Resolve a group's declared `children: [ID]` against `objectById`
+    /// and hand the runtime objects to the group via `setChildren`.
+    /// Skips any children that don't yet exist in `objectById` — child
+    /// upserts that arrive later trigger another sync that fills them
+    /// in.
+    func locked_syncGroupChildren(_ memberData: inout MemberData, groupID: ID) {
+        guard let group = memberData.objectById[groupID],
+              case let .group(groupLayer) = group.layer
+        else { return }
+        let children = groupLayer.children.compactMap { memberData.objectById[$0] }
+        group.setChildren(children)
+    }
+
+    func locked_resolve(_ memberData: inout MemberData, _ index: CanvasIndex<ID>?, usingExistingObjects existingObjects: [any CanvasObject]) -> Int {
         if let index {
-            return locked_resolve(&memberData, index)
+            return locked_resolveTopLevel(&memberData, index)
         } else if let firstObject = existingObjects.first,
                   let firstObjectIndex = memberData.objectsInOrder.firstIndex(where: { $0 === firstObject }) {
             return firstObjectIndex
         } else {
-            return locked_resolve(&memberData, .last)
+            return locked_resolveTopLevel(&memberData, .last)
         }
     }
-    
-    func locked_resolve(_ memberData: inout MemberData, _ index: CanvasIndex) -> Int {
+
+    /// Resolve `index` to an integer position in `objectsInOrder`. Only
+    /// valid for top-level (`index.parent == nil`) indices; parented
+    /// indices resolve against their group's children list at the
+    /// call site that knows the parent.
+    func locked_resolveTopLevel(_ memberData: inout MemberData, _ index: CanvasIndex<ID>) -> Int {
         index.resolve(for: memberData.objectsInOrder)
     }
     
@@ -1085,14 +1238,38 @@ private extension CanvasDatabase {
         guard let object = memberData.objectById[id] else {
             return
         }
-        // TODO: should CanvasObject store it's index for perfomance reasons?
-        let index = memberData.objectsInOrder.firstIndex(where: { $0.id == id })
 
         locked_invalidateRect(&memberData, object.didDrawRect, into: &invalidates)
-        
-        if let index {
+
+        // If this is a group, recursively remove its children first.
+        // Order matters: we want children's invalidation rects
+        // collected and parentByChildID entries cleared before the
+        // parent is dropped from objectById.
+        if case let .group(groupLayer) = object.layer {
+            for childID in groupLayer.children {
+                locked_remove(&memberData, byID: childID, invalidates: &invalidates)
+            }
+        }
+
+        // Detach from whichever container holds the object (top-level
+        // list or parent group's children).
+        if let parentID = memberData.parentByChildID[id] {
+            if let parent = memberData.objectById[parentID],
+               case let .group(parentLayer) = parent.layer
+            {
+                let newChildren = parentLayer.children.filter { $0 != id }
+                locked_transformLayerInvalidateRect(
+                    &memberData,
+                    from: parent.updateLayer(.group(parentLayer.replacingChildren(newChildren))),
+                    into: &invalidates
+                )
+                locked_syncGroupChildren(&memberData, groupID: parentID)
+            }
+            memberData.parentByChildID.removeValue(forKey: id)
+        } else if let index = memberData.objectsInOrder.firstIndex(where: { $0.id == id }) {
             memberData.objectsInOrder.remove(at: index)
         }
+
         memberData.objectById.removeValue(forKey: id)
     }
     
@@ -1106,6 +1283,8 @@ private extension CanvasDatabase {
             CanvasPath(layer: pathLayer)
         case .computed:
             nil
+        case let .group(groupLayer):
+            CanvasGroup(layer: groupLayer)
         }
     }
     
@@ -1154,5 +1333,31 @@ private extension CanvasDatabase {
         for (proxy, bounds) in updates where proxy.viewBounds != bounds {
             proxy.viewBounds = bounds
         }
+    }
+}
+
+// MARK: - Test API
+//
+// Members in this extension are test-only. Each one surfaces exactly
+// one piece of internal hierarchy state that the public API
+// deliberately doesn't expose. Keep them narrow — add a focused
+// accessor per question rather than a broad "leak internals" hook.
+
+extension CanvasDatabase {
+    /// Returns the group ID that claims `childID` as a member, or `nil`
+    /// if the layer is top-level or unknown. Re-parent, cycle-rejection,
+    /// and cascading-delete tests need this signal to assert the
+    /// hierarchy invariants the public `layers(_:)` surface doesn't
+    /// reveal.
+    func test_parentID(of childID: ID) -> ID? {
+        memberData.withLock { $0.parentByChildID[childID] }
+    }
+
+    /// Returns the stored `Layer` for any ID — including children of
+    /// groups, which the public `layers(.all)` query intentionally
+    /// hides. Nested-group tests use this to inspect descendant
+    /// `GroupLayer.children` lists.
+    func test_layer(byID id: ID) -> Layer<ID>? {
+        memberData.withLock { $0.objectById[id]?.layer }
     }
 }
