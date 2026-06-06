@@ -84,6 +84,7 @@ extension CanvasGroup: CanvasObject {
                 clipPath: md.layer.clipPath,
                 mask: md.layer.mask,
                 maskImage: md.cachedMaskImage,
+                contentTransform: .identity,
                 filter: md.layer.filter
             )
             return DrawSnapshot(effects: effects, children: md.children)

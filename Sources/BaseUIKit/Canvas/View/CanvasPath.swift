@@ -250,6 +250,7 @@ private extension CanvasPath {
             clipPath: memberData.clipPath,
             mask: memberData.mask,
             maskImage: memberData.cachedMaskImage,
+            contentTransform: .identity,
             filter: memberData.filter
         )
         effects.draw(in: context, atScale: scale, renderingCache: renderingCache) { target in

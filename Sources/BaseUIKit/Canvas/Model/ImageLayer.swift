@@ -3,7 +3,18 @@ import BaseKit
 
 public struct ImageLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiable {
     public let id: ID
+    /// Full transform that maps image-local space to canvas-global space.
+    /// Includes any inherited transforms, the element's own `transform=`
+    /// attribute, AND the `position` translate.
     public let transform: Transform
+    /// The position-only translate component (from the image's `x`/`y`
+    /// attributes plus any `preserveAspectRatio` offset). Stored
+    /// separately so the canvas renderer can apply it AFTER
+    /// clip-path/mask are set. Per SVG 1.1 §14.3.2, mask and clip-path
+    /// geometry are interpreted in the element's user coordinate system
+    /// — established by inherited + element transforms but NOT by
+    /// content-positioning translates. Defaults to `.zero`.
+    public let position: Vector
     public let opacity: Double
     public let blendMode: BlendMode
     public let isVisible: Bool
@@ -19,6 +30,7 @@ public struct ImageLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifia
     public init(
         id: ID,
         transform: Transform,
+        position: Vector,
         opacity: Double,
         blendMode: BlendMode,
         isVisible: Bool,
@@ -33,6 +45,7 @@ public struct ImageLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifia
     ) {
         self.id = id
         self.transform = transform
+        self.position = position
         self.opacity = opacity
         self.blendMode = blendMode
         self.isVisible = isVisible

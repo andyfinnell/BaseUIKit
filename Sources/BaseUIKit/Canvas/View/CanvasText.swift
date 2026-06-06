@@ -44,11 +44,18 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
         self.id = layer.id
         let baselineFromTop = Double(coreText.baselineFromTopOfFrame(fromRuns: layer.runs, autosize: layer.autosize, width: layer.width))
         let effectiveTransform = Self.applyBaselineOffset(layer.baseline, to: layer.transform, runs: layer.runs, baselineFromTop: baselineFromTop)
+        // `layer.transform` is the full mapping including the position
+        // translate; strip it out to recover the user-space-establishing
+        // transform that drives `LayerEffects.transform`.
+        let effectsTransform = layer.transform.concatenating(
+            Transform(translateX: -layer.position.dx, y: -layer.position.dy))
         self.memberData = Mutex(
             MemberData(
                 didDrawRect: .zero,
                 layer: .text(layer),
                 transform: effectiveTransform,
+                effectsTransform: effectsTransform,
+                position: layer.position,
                 screenOffset: layer.screenOffset,
                 opacity: layer.opacity,
                 blendMode: layer.blendMode,
@@ -204,7 +211,21 @@ private extension CanvasText {
     struct MemberData {
         var didDrawRect: CGRect
         var layer: Layer<ID>
+        /// Full effective transform from glyph-CT-coords to canvas-global.
+        /// Includes inherited + element.transform + position + baseline
+        /// offset. Used by hit-testing, bounds, and rendering.
         var transform: Transform
+        /// User-space-establishing transform from `TextLayer.transform`
+        /// (inherited + element.transform — no position translate, no
+        /// baseline offset). Passed to `LayerEffects` as the transform
+        /// applied BEFORE clip-path/mask so user-space SVG references
+        /// resolve in the element's user coord system per SVG 1.1 §14.3.2.
+        var effectsTransform: Transform
+        /// Content-positioning translate from `TextLayer.position` (the
+        /// text's `x`/`y` attributes). Applied AFTER clip-path/mask as
+        /// `LayerEffects.contentTransform`, together with the baseline
+        /// offset, so it doesn't shift the user-space coord system.
+        var position: Vector
         var screenOffset: Vector
         var opacity: Double
         var blendMode: BlendMode
@@ -322,13 +343,19 @@ private extension CanvasText {
             memberData.cachedMaskImage = memberData.mask?.renderToMaskImage(scale: scale)
         }
 
+        let baselineFromTop = Double(coreText.baselineFromTopOfFrame(fromRuns: memberData.runs, autosize: memberData.autosize, width: memberData.width))
+        let baselineOffset = Self.computeBaselineOffset(memberData.baseline, runs: memberData.runs, baselineFromTop: baselineFromTop)
+        let contentTransform = Transform(
+            translateX: memberData.position.dx,
+            y: memberData.position.dy + baselineOffset)
         let effects = LayerEffects(
             opacity: memberData.opacity,
             blendMode: memberData.blendMode,
-            transform: memberData.transform,
+            transform: memberData.effectsTransform,
             clipPath: memberData.clipPath,
             mask: memberData.mask,
             maskImage: memberData.cachedMaskImage,
+            contentTransform: contentTransform,
             filter: memberData.filter
         )
         effects.draw(in: context, atScale: scale, renderingCache: renderingCache) { target in
@@ -504,8 +531,18 @@ private extension CanvasText {
         }
         let baselineFromTop = Double(coreText.baselineFromTopOfFrame(fromRuns: layer.runs, autosize: layer.autosize, width: layer.width))
         let effectiveTransform = Self.applyBaselineOffset(layer.baseline, to: layer.transform, runs: layer.runs, baselineFromTop: baselineFromTop)
+        let effectsTransform = layer.transform.concatenating(
+            Transform(translateX: -layer.position.dx, y: -layer.position.dy))
         if memberData.transform != effectiveTransform {
             memberData.transform = effectiveTransform
+            didChange = true
+        }
+        if memberData.effectsTransform != effectsTransform {
+            memberData.effectsTransform = effectsTransform
+            didChange = true
+        }
+        if memberData.position != layer.position {
+            memberData.position = layer.position
             didChange = true
         }
         if memberData.screenOffset != layer.screenOffset {

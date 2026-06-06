@@ -15,11 +15,18 @@ final class CanvasImage<ID: Hashable & Sendable>: Sendable {
     
     init(layer: ImageLayer<ID>) {
         self.id = layer.id
+        // `layer.transform` is the full mapping including the position
+        // translate; strip it out to recover the user-space-establishing
+        // transform that drives `LayerEffects.transform`.
+        let effectsTransform = layer.transform.concatenating(
+            Transform(translateX: -layer.position.dx, y: -layer.position.dy))
         self.memberData = Mutex(
             MemberData(
                 didDrawRect: .zero,
                 layer: .image(layer),
                 transform: layer.transform,
+                effectsTransform: effectsTransform,
+                position: layer.position,
                 opacity: layer.opacity,
                 blendMode: layer.blendMode,
                 isVisible: layer.isVisible,
@@ -118,7 +125,22 @@ private extension CanvasImage {
     struct MemberData {
         var didDrawRect: CGRect
         var layer: Layer<ID>
+        /// Full transform from image-local coords to canvas-global,
+        /// including the `position` translate. Used by hit-testing,
+        /// bounds, and color sampling.
         var transform: Transform
+        /// User-space-establishing transform from `ImageLayer.transform`
+        /// (inherited + element.transform — no position translate).
+        /// Passed to `LayerEffects` as the transform applied BEFORE
+        /// clip-path/mask so user-space SVG references resolve in the
+        /// element's user coord system per SVG 1.1 §14.3.2.
+        var effectsTransform: Transform
+        /// Content-positioning translate from `ImageLayer.position` (the
+        /// image's `x`/`y` attributes plus any `preserveAspectRatio`
+        /// offset). Applied AFTER clip-path/mask as
+        /// `LayerEffects.contentTransform` so it doesn't shift the
+        /// user-space coord system.
+        var position: Vector
         var opacity: Double
         var blendMode: BlendMode
         var isVisible: Bool
@@ -137,8 +159,18 @@ private extension CanvasImage {
     func locked_update(_ memberData: inout MemberData, with layer: ImageLayer<ID>) -> Set<CanvasInvalidation> {
         var didChange = false
         memberData.layer = .image(layer)
+        let effectsTransform = layer.transform.concatenating(
+            Transform(translateX: -layer.position.dx, y: -layer.position.dy))
         if memberData.transform != layer.transform {
             memberData.transform = layer.transform
+            didChange = true
+        }
+        if memberData.effectsTransform != effectsTransform {
+            memberData.effectsTransform = effectsTransform
+            didChange = true
+        }
+        if memberData.position != layer.position {
+            memberData.position = layer.position
             didChange = true
         }
         if memberData.opacity != layer.opacity {
@@ -216,13 +248,16 @@ private extension CanvasImage {
             memberData.cachedMaskImage = memberData.mask?.renderToMaskImage(scale: scale)
         }
 
+        let contentTransform = Transform(
+            translateX: memberData.position.dx, y: memberData.position.dy)
         let effects = LayerEffects(
             opacity: memberData.opacity,
             blendMode: memberData.blendMode,
-            transform: memberData.transform,
+            transform: memberData.effectsTransform,
             clipPath: memberData.clipPath,
             mask: memberData.mask,
             maskImage: memberData.cachedMaskImage,
+            contentTransform: contentTransform,
             filter: memberData.filter
         )
         effects.draw(in: context, atScale: scale, renderingCache: renderingCache) { target in

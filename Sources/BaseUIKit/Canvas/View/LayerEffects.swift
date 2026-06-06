@@ -9,22 +9,40 @@ import BaseKit
 struct LayerEffects {
     var opacity: Double
     var blendMode: BlendMode
-    /// Concatenated into the context before `drawContent` runs. `.identity`
-    /// for layers (like groups) whose children are already in canvas-global
-    /// coords.
+    /// Concatenated into the context BEFORE `clipPath` and `mask` are
+    /// applied. Brings the context into the element's user coordinate
+    /// system (the post-`element.transform` space referenced by SVG
+    /// `userSpaceOnUse` clip-path/mask geometry). `.identity` for layers
+    /// (like groups) whose children are already in canvas-global coords.
     var transform: Transform
     var clipPath: ClipPath?
     var mask: MaskLayer?
     /// Pre-rendered mask image. The caller is responsible for caching it
     /// across draw calls.
     var maskImage: CGImage?
+    /// Concatenated into the context AFTER `clipPath`/`mask` but BEFORE
+    /// `drawContent` runs. Used by text/image layers to position content
+    /// (e.g. `translate(x, y)` from the `x`/`y` attributes) without
+    /// shifting the user-space coord system the clip/mask is interpreted
+    /// in. Layers (paths, groups) whose drawn content already lives in
+    /// the user-space coord system pass `.identity`.
+    var contentTransform: Transform
     var filter: FilterLayer?
 
     /// Apply these effects to `context`, then run `drawContent`. Saves
     /// and restores the graphics state, opens a transparency layer when
     /// opacity / blend mode / mask / filter require offscreen
-    /// composition, applies the transform, sets the clip-path, applies
-    /// the mask, and routes content through the filter chain.
+    /// composition, concatenates the user-space `transform`, sets the
+    /// clip-path, applies the mask, concatenates the `contentTransform`,
+    /// and routes content through the filter chain.
+    ///
+    /// Clip-path and mask are applied AFTER `transform` is concatenated
+    /// so that their geometry — which lives in the element's user
+    /// coordinate system per SVG 1.1 §14.3.2 (the post-`element.transform`
+    /// space) — lands in the right place. The optional `contentTransform`
+    /// then runs AFTER clip/mask so callers (text, image) can apply a
+    /// content-positioning translate without shifting where the
+    /// user-space clip/mask is interpreted.
     ///
     /// The save / restore boundary is unconditional — even when no
     /// effects need to be applied — because layer renderers (e.g.
@@ -63,6 +81,10 @@ struct LayerEffects {
 
         if let mask, let maskImage {
             context.clip(to: mask.bounds.toCG, mask: maskImage)
+        }
+
+        if contentTransform != .identity {
+            context.concatenate(contentTransform.toCG)
         }
 
         if let filter {

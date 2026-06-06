@@ -3,7 +3,17 @@ import CoreGraphics
 
 public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiable {
     public let id: ID
+    /// Full transform that maps glyph-local space to canvas-global space.
+    /// Includes any inherited transforms, the element's own `transform=`
+    /// attribute, AND the `position` translate.
     public let transform: Transform
+    /// The position-only translate component (from the text's `x`/`y`
+    /// attributes). Stored separately so the canvas renderer can apply
+    /// it AFTER clip-path/mask are set. Per SVG 1.1 §14.3.2, mask and
+    /// clip-path geometry are interpreted in the element's user
+    /// coordinate system — established by inherited + element transforms
+    /// but NOT by content-positioning translates. Defaults to `.zero`.
+    public let position: Vector
     public let screenOffset: Vector
     public let opacity: Double
     public let blendMode: BlendMode
@@ -25,6 +35,7 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
     public init(
         id: ID,
         transform: Transform,
+        position: Vector,
         screenOffset: Vector = .zero,
         opacity: Double,
         blendMode: BlendMode,
@@ -43,6 +54,7 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
     ) {
         self.id = id
         self.transform = transform
+        self.position = position
         self.screenOffset = screenOffset
         self.opacity = opacity
         self.blendMode = blendMode
