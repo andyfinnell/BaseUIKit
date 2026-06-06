@@ -60,6 +60,9 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
                 shouldScaleWithZoom: layer.shouldScaleWithZoom,
                 baseline: layer.baseline,
                 textDecorationLines: layer.textDecorationLines,
+                clipPath: layer.clipPath,
+                mask: layer.mask,
+                cachedMaskImage: nil,
                 filter: layer.filter,
                 hitPadding: layer.hitPadding,
                 lastDrawnAtScale: 1.0
@@ -198,7 +201,7 @@ extension CanvasText: CanvasObject {
 }
 
 private extension CanvasText {
-    struct MemberData: Sendable {
+    struct MemberData {
         var didDrawRect: CGRect
         var layer: Layer<ID>
         var transform: Transform
@@ -213,6 +216,9 @@ private extension CanvasText {
         var shouldScaleWithZoom: Bool
         var baseline: TextBaseline
         var textDecorationLines: TextDecorationLine
+        var clipPath: ClipPath?
+        var mask: MaskLayer?
+        var cachedMaskImage: CGImage?
         var filter: FilterLayer?
         var hitPadding: CGFloat
         // See `CanvasPath.MemberData.lastDrawnAtScale` for rationale.
@@ -312,10 +318,17 @@ private extension CanvasText {
             return
         }
 
+        if memberData.mask != nil, memberData.cachedMaskImage == nil {
+            memberData.cachedMaskImage = memberData.mask?.renderToMaskImage(scale: scale)
+        }
+
         let effects = LayerEffects(
             opacity: memberData.opacity,
             blendMode: memberData.blendMode,
             transform: memberData.transform,
+            clipPath: memberData.clipPath,
+            mask: memberData.mask,
+            maskImage: memberData.cachedMaskImage,
             filter: memberData.filter
         )
         effects.draw(in: context, atScale: scale, renderingCache: renderingCache) { target in
@@ -529,6 +542,15 @@ private extension CanvasText {
         }
         if memberData.shouldScaleWithZoom != layer.shouldScaleWithZoom {
             memberData.shouldScaleWithZoom = layer.shouldScaleWithZoom
+            didChange = true
+        }
+        if memberData.clipPath != layer.clipPath {
+            memberData.clipPath = layer.clipPath
+            didChange = true
+        }
+        if memberData.mask != layer.mask {
+            memberData.mask = layer.mask
+            memberData.cachedMaskImage = nil
             didChange = true
         }
         if memberData.filter != layer.filter {

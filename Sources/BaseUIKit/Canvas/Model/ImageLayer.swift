@@ -12,6 +12,8 @@ public struct ImageLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifia
     public let imageData: Data?
     public let sourceLabel: String?
     public let clipRect: Rect?
+    public let clipPath: ClipPath?
+    public let mask: MaskLayer?
     public let filter: FilterLayer?
 
     public init(
@@ -25,6 +27,8 @@ public struct ImageLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifia
         imageData: Data?,
         sourceLabel: String? = nil,
         clipRect: Rect? = nil,
+        clipPath: ClipPath? = nil,
+        mask: MaskLayer? = nil,
         filter: FilterLayer? = nil
     ) {
         self.id = id
@@ -37,6 +41,8 @@ public struct ImageLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifia
         self.imageData = imageData
         self.sourceLabel = sourceLabel
         self.clipRect = clipRect
+        self.clipPath = clipPath
+        self.mask = mask
         self.filter = filter
     }
 }

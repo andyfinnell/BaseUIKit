@@ -15,6 +15,8 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
     public let width: Double
     public let baseline: TextBaseline
     public let textDecorationLines: TextDecorationLine
+    public let clipPath: ClipPath?
+    public let mask: MaskLayer?
     public let filter: FilterLayer?
     /// Extra screen-pt distance around the text's typographic bounds that
     /// still counts as a hit. See `PathLayer.hitPadding`.
@@ -34,6 +36,8 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         width: Double,
         baseline: TextBaseline = .alphabetic,
         textDecorationLines: TextDecorationLine = [],
+        clipPath: ClipPath? = nil,
+        mask: MaskLayer? = nil,
         filter: FilterLayer? = nil,
         hitPadding: CGFloat = 0
     ) {
@@ -50,6 +54,8 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         self.width = width
         self.baseline = baseline
         self.textDecorationLines = textDecorationLines
+        self.clipPath = clipPath
+        self.mask = mask
         self.filter = filter
         self.hitPadding = hitPadding
     }

@@ -28,6 +28,9 @@ final class CanvasImage<ID: Hashable & Sendable>: Sendable {
                 imageData: layer.imageData,
                 sourceLabel: layer.sourceLabel,
                 clipRect: layer.clipRect,
+                clipPath: layer.clipPath,
+                mask: layer.mask,
+                cachedMaskImage: nil,
                 filter: layer.filter,
                 imageCache: nil
             )
@@ -124,6 +127,9 @@ private extension CanvasImage {
         var imageData: Data?
         var sourceLabel: String?
         var clipRect: Rect?
+        var clipPath: ClipPath?
+        var mask: MaskLayer?
+        var cachedMaskImage: CGImage?
         var filter: FilterLayer?
         var imageCache: CGImage?
     }
@@ -168,6 +174,15 @@ private extension CanvasImage {
             memberData.clipRect = layer.clipRect
             didChange = true
         }
+        if memberData.clipPath != layer.clipPath {
+            memberData.clipPath = layer.clipPath
+            didChange = true
+        }
+        if memberData.mask != layer.mask {
+            memberData.mask = layer.mask
+            memberData.cachedMaskImage = nil
+            didChange = true
+        }
         if memberData.filter != layer.filter {
             memberData.filter = layer.filter
             didChange = true
@@ -197,37 +212,29 @@ private extension CanvasImage {
             return
         }
 
-        context.saveGState()
-
-        let needsTransparencyLayer = memberData.opacity < 1.0 || memberData.blendMode != .normal
-        if needsTransparencyLayer {
-            context.setAlpha(memberData.opacity)
-            context.setBlendMode(memberData.blendMode.toCG)
-            context.beginTransparencyLayer(auxiliaryInfo: nil)
+        if memberData.mask != nil, memberData.cachedMaskImage == nil {
+            memberData.cachedMaskImage = memberData.mask?.renderToMaskImage(scale: scale)
         }
 
-        let affineTransform = memberData.transform.toCG
-        context.concatenate(affineTransform)
+        let effects = LayerEffects(
+            opacity: memberData.opacity,
+            blendMode: memberData.blendMode,
+            transform: memberData.transform,
+            clipPath: memberData.clipPath,
+            mask: memberData.mask,
+            maskImage: memberData.cachedMaskImage,
+            filter: memberData.filter
+        )
+        effects.draw(in: context, atScale: scale, renderingCache: renderingCache) { target in
+            locked_drawSelf(&memberData, in: rect, into: target, atScale: scale)
+        }
+    }
 
+    func locked_drawSelf(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
         if let clipRect = memberData.clipRect {
             context.clip(to: [clipRect.toCG])
         }
 
-        if let filter = memberData.filter {
-            filter.drawFiltered(into: context, scale: scale, renderingCache: renderingCache) { targetContext in
-                locked_drawSelf(&memberData, in: rect, into: targetContext, atScale: scale)
-            }
-        } else {
-            locked_drawSelf(&memberData, in: rect, into: context, atScale: scale)
-        }
-
-        if needsTransparencyLayer {
-            context.endTransparencyLayer()
-        }
-        context.restoreGState()
-    }
-
-    func locked_drawSelf(_ memberData: inout MemberData, in rect: CGRect, into context: CGContext, atScale scale: CGFloat) {
         let bounds = CGRect(x: 0, y: 0, width: memberData.width, height: memberData.height)
 
         if memberData.imageData != nil, let image = locked_image(&memberData) {
