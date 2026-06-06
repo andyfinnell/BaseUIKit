@@ -144,11 +144,10 @@ private extension FilterLayer {
     }
 
     func applyGaussianBlur(input: CIImage, stdDeviationX: Double, stdDeviationY: Double) -> CIImage? {
-        // CIGaussianBlur's inputRadius is the kernel radius in pixels, not the
-        // Gaussian σ. Empirically, a kernel radius of ~3σ reproduces WebKit's
-        // feGaussianBlur output (WebKit uses three box-blur passes whose
-        // visible reach is 3σ).
-        let radiusMultiplier = 3.0
+        // CIGaussianBlur's inputRadius parameter is approximately the Gaussian
+        // σ (not the visible reach ≈ 3σ). SVG feGaussianBlur's stdDeviation IS
+        // the Gaussian σ, so the mapping is 1:1.
+        let radiusMultiplier = 1.0
 
         // No-op cases: SVG spec forbids σ < 0 and treats σ = 0 as no blur on
         // that axis. Both zero means no blur at all.
