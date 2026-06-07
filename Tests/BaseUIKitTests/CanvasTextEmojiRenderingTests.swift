@@ -56,14 +56,21 @@ final class CanvasTextEmojiRenderingTests: XCTestCase {
         context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: bitmapSize, height: bitmapSize))
 
+        // Place the SVG baseline at (4, 30) so a 24pt face's ascenders fit
+        // inside the 64x64 bitmap (ascent ~22pt → top at y≈8; descent ~5pt
+        // → bottom at y≈35). `transform` includes the `position` translate
+        // per the TextLayer contract.
+        let baselineX: Double = 4
+        let baselineY: Double = 30
+
         let attributes: [TextRun.Attribute] = [
             .fontName("Helvetica"),
             .fontSize(fontSize),
         ]
         let textLayer = TextLayer<TestID>(
             id: TestID(),
-            transform: BaseKit.Transform(translateX: 0, y: 0),
-            position: .zero,
+            transform: BaseKit.Transform(translateX: baselineX, y: baselineY),
+            position: Vector(dx: baselineX, dy: baselineY),
             opacity: 1.0,
             blendMode: .normal,
             isVisible: true,
