@@ -947,6 +947,11 @@ private extension ProtectedCoreText {
     /// CoreText line origins are in y-up coords, so dy is subtracted from
     /// `accDy` here; consumers add `accDy` to `lineOrigin.y` and a downward
     /// SVG dy ends up at a lower screen y after the renderer's y-flip.
+    ///
+    /// `TextRun.baselineShift` (positive = visually down) is applied as a
+    /// *transient* offset on the run's `accumulatedDy` — it shifts this
+    /// run's glyphs only and does NOT carry forward to subsequent runs,
+    /// matching SVG 1.1 `baseline-shift` / `alignment-baseline` semantics.
     func queued_walkRuns(
         in frame: CTFrame,
         runs: [TextRun],
@@ -968,6 +973,9 @@ private extension ProtectedCoreText {
                     }
                     lastSeenRunIndex = runIndex
                 }
+                let baselineShift: CGFloat =
+                    runIndex >= 0 && runIndex < runs.count
+                    ? CGFloat(runs[runIndex].baselineShift) : 0
                 body(
                     WalkedRun(
                         line: line,
@@ -975,7 +983,7 @@ private extension ProtectedCoreText {
                         run: run,
                         runIndex: runIndex,
                         accumulatedDx: accDx,
-                        accumulatedDy: accDy
+                        accumulatedDy: accDy - baselineShift
                     )
                 )
             }

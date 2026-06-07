@@ -46,6 +46,70 @@ extension ResolvedFont {
     /// Natural line height — baseline-to-baseline advance for a `\n`
     /// line break: `ascent + descent + leading`.
     public var naturalLineHeight: Double { ascent + descent + leading }
+
+    /// Y offset (SVG-y-down: positive = visually down) to apply when
+    /// rendering subscript glyphs. Reads `ySubscriptYOffset` from the
+    /// OS/2 table when available; falls back to ~half the descent.
+    public var subscriptOffset: Double {
+        if let m = os2Metrics { return m.subscriptYOffset }
+        return descent * 0.5
+    }
+
+    /// Y offset (SVG-y-down: negative = visually up) to apply when
+    /// rendering superscript glyphs. Reads `ySuperscriptYOffset` from
+    /// the OS/2 table when available; falls back to ~40% of the ascent.
+    public var superscriptOffset: Double {
+        if let m = os2Metrics { return -m.superscriptYOffset }
+        return -ascent * 0.4
+    }
+
+    /// Offset (SVG-y-down) from the alphabetic baseline to the named
+    /// baseline of this font. Used to compute `alignment-baseline`
+    /// shifts: a child run with `alignment-baseline: hanging` wants its
+    /// hanging baseline at the parent's dominant-baseline Y; the
+    /// required visual shift is `parentBaselineOffset - childBaselineOffset(.hanging)`.
+    public func baselineOffset(for baseline: TextBaseline) -> Double {
+        switch baseline {
+        case .alphabetic: 0
+        case .top: -ascent
+        case .bottom: descent
+        case .middle: -xHeight * 0.5
+        case .central: -(ascent - descent) * 0.5
+        case .hanging: -ascent * 0.8
+        case .mathematical: -xHeight * 0.5
+        }
+    }
+}
+
+private struct OS2Metrics {
+    let subscriptYOffset: Double
+    let superscriptYOffset: Double
+}
+
+private extension ResolvedFont {
+    /// Parse the OS/2 table's subscript/superscript Y offsets and scale
+    /// them to point size. Returns nil if the table is missing, too
+    /// short, or the font's `unitsPerEm` is zero.
+    var os2Metrics: OS2Metrics? {
+        let tag = CTFontTableTag(kCTFontTableOS2)
+        guard let cfData = CTFontCopyTable(ctFont, tag, .init(rawValue: 0)) else { return nil }
+        let data = cfData as Data
+        guard data.count >= 26 else { return nil }
+        let unitsPerEm = Double(CTFontGetUnitsPerEm(ctFont))
+        guard unitsPerEm > 0 else { return nil }
+        let subY = Double(readInt16BE(data, at: 16))
+        let superY = Double(readInt16BE(data, at: 24))
+        let scale = pointSize / unitsPerEm
+        return OS2Metrics(
+            subscriptYOffset: subY * scale,
+            superscriptYOffset: superY * scale)
+    }
+}
+
+private func readInt16BE(_ data: Data, at offset: Int) -> Int16 {
+    let hi = UInt16(data[data.startIndex + offset])
+    let lo = UInt16(data[data.startIndex + offset + 1])
+    return Int16(bitPattern: (hi << 8) | lo)
 }
 
 /// Translates a `FontRequest` into a `ResolvedFont`. Owns all CoreText
