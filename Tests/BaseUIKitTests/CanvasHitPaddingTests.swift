@@ -257,6 +257,7 @@ private extension CanvasHitPaddingTests {
         let layer = TextLayer<TestID>(
             id: TestID(),
             transform: BaseKit.Transform(translateX: anchor.x, y: anchor.y),
+            position: .zero,
             opacity: 1.0,
             blendMode: .normal,
             isVisible: true,

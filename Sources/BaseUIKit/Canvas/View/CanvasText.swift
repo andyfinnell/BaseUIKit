@@ -663,11 +663,11 @@ private extension CanvasText {
     }
 
     static func computeBaselineOffset(_ baseline: TextBaseline, runs: [TextRun], baselineFromTop: Double) -> Double {
-        let ctFont = TextRun.resolvedFont(from: runs.first?.attributes ?? [])
-        let ascent = Double(CTFontGetAscent(ctFont))
-        let descent = Double(CTFontGetDescent(ctFont))
-        let xHeight = Double(CTFontGetXHeight(ctFont))
-        let capHeight = Double(CTFontGetCapHeight(ctFont))
+        let font = TextRun.resolvedFont(from: runs.first?.attributes ?? [])
+        let ascent = font.ascent
+        let descent = font.descent
+        let xHeight = font.xHeight
+        let capHeight = font.capHeight
 
         // The offset shifts from the SVG y-coordinate (the specified baseline position)
         // to the top of the text frame. For `.alphabetic` we use the framesetter's
@@ -865,12 +865,12 @@ private extension ProtectedCoreText {
     // Returns `CTFontGetAscent` as a fallback when runs are empty or the
     // framesetter produces no lines.
     func queued_baselineFromTopOfFrame(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat) -> CGFloat {
-        let ctFont = TextRun.resolvedFont(from: runs.first?.attributes ?? [])
-        guard !runs.isEmpty else { return CTFontGetAscent(ctFont) }
+        let font = TextRun.resolvedFont(from: runs.first?.attributes ?? [])
+        guard !runs.isEmpty else { return font.ascent }
         let bounds = queued_framesetterBounds(fromRuns: runs, autosize: autosize, width: width)
         let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
         guard let firstOriginY = frame.lineOrigins.first?.y else {
-            return CTFontGetAscent(ctFont)
+            return font.ascent
         }
         return bounds.height - firstOriginY
     }
@@ -1592,6 +1592,7 @@ private extension ProtectedCoreText {
     func queued_attributes(from attributes: [TextRun.Attribute]) -> [NSAttributedString.Key: Any] {
         var fontName = "Times"
         var fontSize: CGFloat = 16.0
+        var fontRequest: FontRequest?
         var textAlignment: NSTextAlignment?
         var letterSpacing: Double?
         var wordSpacing: Double?
@@ -1602,6 +1603,8 @@ private extension ProtectedCoreText {
                 fontName = name
             case let .fontSize(size):
                 fontSize = size
+            case let .fontRequest(request):
+                fontRequest = request
             case let .textAlign(align):
                 textAlignment = align.toNative
             case let .letterSpacing(value):
@@ -1612,7 +1615,13 @@ private extension ProtectedCoreText {
         }
 
         var attributeDictionary = [NSAttributedString.Key: Any]()
-        attributeDictionary[.font] = Font(name: fontName, size: fontSize).native
+        if let fontRequest {
+            let resolved = FontResolver.resolve(fontRequest)
+            attributeDictionary[.font] =
+                Font(name: resolved.postScriptName, size: resolved.pointSize).native
+        } else {
+            attributeDictionary[.font] = Font(name: fontName, size: fontSize).native
+        }
 
         if let textAlignment {
             let paragraphStyle = NSMutableParagraphStyle()

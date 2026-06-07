@@ -189,6 +189,7 @@ import Testing
         let layer = TextLayer<TestID>(
             id: TestID(),
             transform: BaseKit.Transform(translateX: 50, y: 50),
+            position: .zero,
             opacity: 1.0,
             blendMode: .normal,
             isVisible: true,
@@ -216,6 +217,7 @@ import Testing
         let layer = TextLayer<TestID>(
             id: TestID(),
             transform: BaseKit.Transform(translateX: 100, y: 100),
+            position: .zero,
             opacity: 1.0,
             blendMode: .normal,
             isVisible: true,

@@ -81,6 +81,7 @@ private extension CanvasTextScalingTests {
         let layer = TextLayer<TestID>(
             id: TestID(),
             transform: BaseKit.Transform(translateX: 10, y: 30),
+            position: .zero,
             opacity: 1.0,
             blendMode: .normal,
             isVisible: true,
@@ -145,6 +146,7 @@ private extension CanvasTextScalingTests {
         let layer = TextLayer<TestID>(
             id: TestID(),
             transform: BaseKit.Transform(translateX: 30, y: 30),
+            position: .zero,
             opacity: 1.0,
             blendMode: .normal,
             isVisible: true,
@@ -205,6 +207,7 @@ private extension CanvasTextScalingTests {
         let layer = TextLayer<TestID>(
             id: TestID(),
             transform: BaseKit.Transform(translateX: 0, y: 0),
+            position: .zero,
             opacity: 1.0,
             blendMode: .normal,
             isVisible: true,

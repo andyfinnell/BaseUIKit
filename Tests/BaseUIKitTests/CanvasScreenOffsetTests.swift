@@ -226,6 +226,7 @@ private extension CanvasScreenOffsetTests {
         let layer = TextLayer<TestID>(
             id: TestID(),
             transform: BaseKit.Transform(translateX: anchor.x, y: anchor.y),
+            position: .zero,
             screenOffset: screenOffset,
             opacity: 1.0,
             blendMode: .normal,
@@ -338,6 +339,7 @@ private extension CanvasScreenOffsetTests {
                 translateX: Self.anchor.x,
                 y: Self.anchor.y
             ),
+            position: .zero,
             screenOffset: screenOffset,
             opacity: 1.0,
             blendMode: .normal,

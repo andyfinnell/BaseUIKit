@@ -63,6 +63,7 @@ final class CanvasTextEmojiRenderingTests: XCTestCase {
         let textLayer = TextLayer<TestID>(
             id: TestID(),
             transform: BaseKit.Transform(translateX: 0, y: 0),
+            position: .zero,
             opacity: 1.0,
             blendMode: .normal,
             isVisible: true,
