@@ -63,7 +63,19 @@ public extension CTRun {
         CTRunGetPositions(self, CFRange(location: 0, length: CTRunGetGlyphCount(self)), &positions)
         return positions
     }
-    
+
+    /// For each glyph, the UTF-16 index in the source attributed string
+    /// that produced it. With ligatures disabled (1:1 char:glyph), this
+    /// is the only correct way to map a glyph back to its source
+    /// character — `range.location + i` only holds when CT didn't
+    /// reorder or skip.
+    var stringIndices: [Int] {
+        let count = CTRunGetGlyphCount(self)
+        var indices = Array<CFIndex>(repeating: 0, count: count)
+        CTRunGetStringIndices(self, CFRange(location: 0, length: count), &indices)
+        return indices.map { Int($0) }
+    }
+
     var range: CFRange {
         CTRunGetStringRange(self)
     }

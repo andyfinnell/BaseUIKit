@@ -395,7 +395,9 @@ private extension CanvasText {
 
         guard !memberData.runs.isEmpty else { return }
 
-        if memberData.runs.contains(where: \.needsPerRunRendering) {
+        if memberData.runs.contains(where: \.needsPerGlyphRendering) {
+            locked_drawPerGlyph(&memberData, bounds: bounds, into: context, atScale: scale, renderingCache: renderingCache)
+        } else if memberData.runs.contains(where: \.needsPerRunRendering) {
             locked_drawPerRun(&memberData, bounds: bounds, into: context, atScale: scale, renderingCache: renderingCache)
         } else {
             locked_drawUniform(&memberData, bounds: bounds, into: context, atScale: scale, renderingCache: renderingCache)
@@ -460,6 +462,53 @@ private extension CanvasText {
         )
 
         // Draw text decoration lines per run
+        let perRunDecorationPaths = coreText.perRunTextDecorationPaths(
+            fromRuns: memberData.runs,
+            defaultLines: memberData.textDecorationLines,
+            autosize: memberData.autosize,
+            width: memberData.width
+        )
+        for runPath in perRunDecorationPaths {
+            let decorations = memberData.runs[runPath.runIndex].decorations ?? memberData.decorations
+            for decoration in decorations {
+                setPath(runPath.path.cgPath, with: bounds, in: context)
+                decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
+            }
+        }
+    }
+
+    /// Per-glyph composition path: glyph outlines are placed at each
+    /// TextRun's `perGlyphOffsets` / `perGlyphRotations`. Glyphs whose
+    /// entry is nil (sparse arrays) fall back to natural CT layout.
+    /// Decoration lines (underline/overline/line-through) continue to
+    /// draw at the natural framesetter baseline — known Option A
+    /// limitation when offsets steer glyphs away from that baseline.
+    func locked_drawPerGlyph(_ memberData: inout MemberData, bounds: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
+        let runPaths = coreText.perGlyphPaths(
+            fromRuns: memberData.runs,
+            autosize: memberData.autosize,
+            width: memberData.width,
+            bounds: bounds
+        )
+
+        for runPath in runPaths {
+            let decorations = memberData.runs[runPath.runIndex].decorations ?? memberData.decorations
+            for decoration in decorations {
+                setPath(runPath.path.cgPath, with: bounds, in: context)
+                decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
+            }
+        }
+
+        coreText.drawColorGlyphsPerGlyph(
+            fromRuns: memberData.runs,
+            autosize: memberData.autosize,
+            width: memberData.width,
+            bounds: bounds,
+            into: context
+        )
+
+        // Decoration lines: natural-baseline positions, ignoring
+        // per-glyph offsets (Option A from the task plan).
         let perRunDecorationPaths = coreText.perRunTextDecorationPaths(
             fromRuns: memberData.runs,
             defaultLines: memberData.textDecorationLines,
@@ -798,6 +847,25 @@ private final class ProtectedCoreText: @unchecked Sendable {
     func perRunTextDecorationPaths(fromRuns runs: [TextRun], defaultLines: TextDecorationLine, autosize: Bool, width: CGFloat) -> [RunPathEntry] {
         queue.sync {
             queued_perRunTextDecorationPaths(fromRuns: runs, defaultLines: defaultLines, autosize: autosize, width: width)
+        }
+    }
+
+    func perGlyphPaths(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat, bounds: CGRect) -> [RunPathEntry] {
+        queue.sync {
+            queued_perGlyphPaths(fromRuns: runs, autosize: autosize, width: width, bounds: bounds)
+        }
+    }
+
+    func drawColorGlyphsPerGlyph(
+        fromRuns runs: [TextRun],
+        autosize: Bool,
+        width: CGFloat,
+        bounds: CGRect,
+        into context: CGContext
+    ) {
+        queue.sync {
+            queued_drawColorGlyphsPerGlyph(
+                fromRuns: runs, autosize: autosize, width: width, bounds: bounds, into: context)
         }
     }
 }
@@ -1539,15 +1607,164 @@ private extension ProtectedCoreText {
             .map { RunPathEntry(path: BezierPath($0.value), runIndex: $0.key) }
     }
 
+    /// Builds per-TextRun glyph outline paths placed at each TextRun's
+    /// `perGlyphOffsets` / `perGlyphRotations`. Glyphs whose entry is
+    /// nil (sparse arrays) fall back to natural CT positions with the
+    /// usual dx/dy/baseline-shift accumulation. Output paths are in
+    /// CT-y-up coords so `setPath`'s y-flip lands them at SVG-y-down
+    /// `perGlyphOffsets[i].y` in canvas space.
+    func queued_perGlyphPaths(fromRuns runs: [TextRun], autosize: Bool, width: CGFloat, bounds: CGRect) -> [RunPathEntry] {
+        let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
+        guard !frame.lines.isEmpty else { return [] }
+
+        let runRanges = queued_runRanges(for: runs)
+        var pathsByRun = [Int: CGMutablePath]()
+        queued_walkRuns(in: frame, runs: runs) { walked in
+            let runIndex = walked.runIndex
+            guard runIndex >= 0 && runIndex < runs.count else { return }
+            let textRun = runs[runIndex]
+            let runStart = runRanges[runIndex].start
+            let coreFont = walked.run.font as CTFont
+            let glyphs = walked.run.glyphs
+            let positions = walked.run.positions
+            let stringIndices = walked.run.stringIndices
+
+            let path = pathsByRun[runIndex] ?? CGMutablePath()
+            for i in 0..<glyphs.count {
+                let localIndex = stringIndices[i] - runStart
+                var transform = perGlyphTransform(
+                    textRun: textRun,
+                    localIndex: localIndex,
+                    naturalPosition: positions[i],
+                    lineOrigin: walked.lineOrigin,
+                    accDx: walked.accumulatedDx,
+                    accDy: walked.accumulatedDy,
+                    boundsHeight: bounds.height
+                )
+                guard let glyphPath = CTFontCreatePathForGlyph(coreFont, glyphs[i], &transform)
+                else { continue }
+                path.addPath(glyphPath)
+            }
+            pathsByRun[runIndex] = path
+        }
+
+        return pathsByRun
+            .sorted { $0.key < $1.key }
+            .map { RunPathEntry(path: BezierPath($0.value), runIndex: $0.key) }
+    }
+
+    /// Color-glyph (emoji) draw for per-glyph mode. Path mode can't
+    /// render bitmap glyphs (CTFontCreatePathForGlyph returns nil), so
+    /// we draw them with CTFontDrawGlyphs under each glyph's transform.
+    func queued_drawColorGlyphsPerGlyph(
+        fromRuns runs: [TextRun],
+        autosize: Bool,
+        width: CGFloat,
+        bounds: CGRect,
+        into context: CGContext
+    ) {
+        let frame = queued_frame(fromRuns: runs, autosize: autosize, width: width)
+        guard !frame.lines.isEmpty else { return }
+
+        let runRanges = queued_runRanges(for: runs)
+        context.saveGState()
+        // Match `setPath`'s y-flip: glyph transforms are computed in
+        // CT-y-up, this flip lands them in canvas-y-down.
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
+
+        queued_walkRuns(in: frame, runs: runs) { walked in
+            let runIndex = walked.runIndex
+            guard runIndex >= 0 && runIndex < runs.count else { return }
+            let coreFont = walked.run.font as CTFont
+            guard runHasColorGlyphs(walked.run, font: coreFont) else { return }
+
+            let textRun = runs[runIndex]
+            let runStart = runRanges[runIndex].start
+            let glyphs = walked.run.glyphs
+            let positions = walked.run.positions
+            let stringIndices = walked.run.stringIndices
+
+            for i in 0..<glyphs.count {
+                let localIndex = stringIndices[i] - runStart
+                let transform = perGlyphTransform(
+                    textRun: textRun,
+                    localIndex: localIndex,
+                    naturalPosition: positions[i],
+                    lineOrigin: walked.lineOrigin,
+                    accDx: walked.accumulatedDx,
+                    accDy: walked.accumulatedDy,
+                    boundsHeight: bounds.height
+                )
+                context.saveGState()
+                context.concatenate(transform)
+                var glyph = glyphs[i]
+                var origin = CGPoint.zero
+                CTFontDrawGlyphs(coreFont, &glyph, &origin, 1, context)
+                context.restoreGState()
+            }
+        }
+
+        context.restoreGState()
+    }
+
+    /// Resolves the transform that places one glyph: an explicit
+    /// `perGlyphOffsets[localIndex]` REPLACES the natural CT
+    /// position; nil falls back to `lineOrigin + naturalPosition +
+    /// (accDx, accDy)`. Then a non-nil `perGlyphRotations[localIndex]`
+    /// post-multiplies a rotation around the glyph's own origin.
+    ///
+    /// The explicit-offset branch flips SVG-y-down to CT-y-up via
+    /// `boundsHeight - offset.y` so the downstream `setPath` y-flip
+    /// lands the glyph at SVG y `offset.y` in canvas space.
+    func perGlyphTransform(
+        textRun: TextRun,
+        localIndex: Int,
+        naturalPosition: CGPoint,
+        lineOrigin: CGPoint,
+        accDx: CGFloat,
+        accDy: CGFloat,
+        boundsHeight: CGFloat
+    ) -> CGAffineTransform {
+        let explicitOffset: Point? =
+            textRun.perGlyphOffsets.flatMap { offsets in
+                offsets.indices.contains(localIndex) ? offsets[localIndex] : nil
+            }
+        let explicitRotation: Double? =
+            textRun.perGlyphRotations.flatMap { rotations in
+                rotations.indices.contains(localIndex) ? rotations[localIndex] : nil
+            }
+
+        var transform: CGAffineTransform
+        if let offset = explicitOffset {
+            transform = CGAffineTransform(
+                translationX: CGFloat(offset.x),
+                y: boundsHeight - CGFloat(offset.y)
+            )
+        } else {
+            transform = CGAffineTransform(
+                translationX: lineOrigin.x + naturalPosition.x + accDx,
+                y: lineOrigin.y + naturalPosition.y + accDy
+            )
+        }
+        if let rotation = explicitRotation {
+            transform = transform.rotated(by: CGFloat(rotation))
+        }
+        return transform
+    }
+
     func queued_attributedString(fromRuns runs: [TextRun]) -> NSAttributedString {
         if let attributedStringCache {
             return attributedStringCache
         }
 
-        // When any run needs per-run rendering (different fill/stroke/decoration),
-        // tag each run with a unique attribute so CoreText produces separate CTRuns
-        // even when font attributes are identical.
+        // When any run needs per-run or per-glyph rendering, tag each
+        // run with a unique attribute so CoreText produces separate
+        // CTRuns even when font attributes are identical. Per-glyph
+        // mode also relies on this so each CTRun's glyphs index into
+        // exactly one TextRun's `perGlyphOffsets`/`perGlyphRotations`.
         let needsRunSplitting = runs.contains(where: \.needsPerRunRendering)
+            || runs.contains(where: \.needsPerGlyphRendering)
         let attributedString = runs.enumerated().reduce(into: NSMutableAttributedString()) {
             partial, indexedRun in
             let runString = queued_attributedString(from: indexedRun.element)
@@ -1578,7 +1795,14 @@ private extension ProtectedCoreText {
     }
 
     func queued_attributedString(from run: TextRun) -> NSAttributedString {
-        let baseAttributes = queued_attributes(from: run.attributes)
+        var baseAttributes = queued_attributes(from: run.attributes)
+        if run.needsPerGlyphRendering {
+            // Per SVG 1.1 §10.5, explicit per-character positioning
+            // breaks ligatures so the i-th list entry maps to the i-th
+            // glyph. kCTLigatureAttributeName = 0 disables CT's default
+            // common-ligature substitution.
+            baseAttributes[NSAttributedString.Key(kCTLigatureAttributeName as String)] = NSNumber(value: 0)
+        }
         let wordSpacing = run.attributes.lazy.compactMap { attr -> Double? in
             if case let .wordSpacing(value) = attr { return value }
             return nil
