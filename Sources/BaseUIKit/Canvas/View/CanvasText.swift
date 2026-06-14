@@ -32,6 +32,14 @@ struct RunPathEntry {
 final class CanvasText<ID: Hashable & Sendable>: Sendable {
     let id: ID
     private let memberData: Mutex<MemberData>
+    /// CT pipeline used by *layer-wide* queries (typographic bounds,
+    /// baseline-from-top, caret, navigation, text-rects). Operates on the
+    /// flat `runs` view across all blocks. For single-block layers this
+    /// matches the today behavior exactly; for multi-block layers it's
+    /// an approximation (the framesetter sees the runs as one continuous
+    /// stream regardless of block boundaries). Per-block rendering uses
+    /// `MemberData.blockCoreTexts` so each block gets its own framesetter
+    /// cache keyed to that block's runs.
     private let coreText = ProtectedCoreText()
 
     var didDrawRect: CGRect { memberData.withLock { $0.didDrawRect } }
@@ -63,6 +71,8 @@ final class CanvasText<ID: Hashable & Sendable>: Sendable {
                 decorations: layer.decorations,
                 autosize: layer.autosize,
                 width: layer.width,
+                blocks: layer.blocks,
+                blockCoreTexts: layer.blocks.map { _ in ProtectedCoreText() },
                 runs: layer.runs,
                 shouldScaleWithZoom: layer.shouldScaleWithZoom,
                 baseline: layer.baseline,
@@ -233,6 +243,18 @@ private extension CanvasText {
         var decorations: [Decoration]
         var autosize: Bool
         var width: Double
+        var blocks: [TextBlock]
+        /// One CT pipeline per block — keeps each block's framesetter
+        /// cache keyed to its own runs so a multi-block render doesn't
+        /// stomp the cache between calls. Length always equals
+        /// `blocks.count`.
+        var blockCoreTexts: [ProtectedCoreText]
+        /// Flat run list derived from `blocks`. Cached here because the
+        /// layer-wide CT helpers (`structureBounds`, `caretRect`,
+        /// `navigateText`, etc.) operate on the layer as a single stream
+        /// of runs — see `CanvasText.coreText`. For single-block layers
+        /// this matches the today behavior; for multi-block layers it's
+        /// an approximation that ignores block boundaries.
         var runs: [TextRun]
         var shouldScaleWithZoom: Bool
         var baseline: TextBaseline
@@ -391,9 +413,8 @@ private extension CanvasText {
                 y: CGFloat(memberData.screenOffset.dy) * factor
             )
         }
-        let bounds = locked_structureBounds(&memberData)
 
-        guard !memberData.runs.isEmpty else { return }
+        guard !memberData.blocks.isEmpty else { return }
 
         // The CTM at this point includes `LayerEffects.contentTransform`
         // (position + baseline offset), which correctly places the glyph
@@ -406,17 +427,43 @@ private extension CanvasText {
         // are, while paints draw in pre-contentTransform user space.
         let contentInverse = locked_contentInverseTranslate(&memberData)
 
-        if memberData.runs.contains(where: \.needsPerGlyphRendering) {
-            locked_drawPerGlyph(&memberData, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
-        } else if memberData.runs.contains(where: \.needsPerRunRendering) {
-            locked_drawPerRun(&memberData, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
-        } else {
-            locked_drawUniform(&memberData, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
+        for (index, block) in memberData.blocks.enumerated() {
+            let blockCT = memberData.blockCoreTexts[index]
+            let blockRuns = block.runs
+            guard !blockRuns.isEmpty else { continue }
+            let blockBounds = blockCT.structureBounds(
+                fromRuns: blockRuns, autosize: memberData.autosize, width: memberData.width)
+
+            switch block {
+            case let .framesetter(runs, anchor):
+                context.saveGState()
+                if anchor.dx != 0 || anchor.dy != 0 {
+                    context.translateBy(x: anchor.dx, y: anchor.dy)
+                }
+                if runs.contains(where: \.needsPerRunRendering) {
+                    locked_drawPerRun(
+                        &memberData, coreText: blockCT, runs: runs,
+                        bounds: blockBounds, contentInverse: contentInverse,
+                        into: context, atScale: scale, renderingCache: renderingCache)
+                } else {
+                    locked_drawUniform(
+                        &memberData, coreText: blockCT, runs: runs,
+                        bounds: blockBounds, contentInverse: contentInverse,
+                        into: context, atScale: scale, renderingCache: renderingCache)
+                }
+                context.restoreGState()
+
+            case let .perGlyph(runs):
+                locked_drawPerGlyph(
+                    &memberData, coreText: blockCT, runs: runs,
+                    bounds: blockBounds, contentInverse: contentInverse,
+                    into: context, atScale: scale, renderingCache: renderingCache)
+            }
         }
     }
 
-    func locked_drawUniform(_ memberData: inout MemberData, bounds: CGRect, contentInverse: CGPoint, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
-        let path = locked_cgPath(&memberData)
+    func locked_drawUniform(_ memberData: inout MemberData, coreText: ProtectedCoreText, runs: [TextRun], bounds: CGRect, contentInverse: CGPoint, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
+        let path = locked_cgPath(coreText: coreText, runs: runs, autosize: memberData.autosize, width: memberData.width)
         for decoration in memberData.decorations {
             renderDecoration(decoration, path: path, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
         }
@@ -425,7 +472,7 @@ private extension CanvasText {
         // from the path-based render above. Draw them via CoreText's native
         // `CTRunDraw` so they show up.
         coreText.drawColorGlyphs(
-            fromRuns: memberData.runs,
+            fromRuns: runs,
             autosize: memberData.autosize,
             width: memberData.width,
             bounds: bounds,
@@ -435,7 +482,7 @@ private extension CanvasText {
         if !memberData.textDecorationLines.isEmpty {
             let linePath = coreText.textDecorationPath(
                 memberData.textDecorationLines,
-                fromRuns: memberData.runs,
+                fromRuns: runs,
                 autosize: memberData.autosize,
                 width: memberData.width
             )
@@ -445,15 +492,15 @@ private extension CanvasText {
         }
     }
 
-    func locked_drawPerRun(_ memberData: inout MemberData, bounds: CGRect, contentInverse: CGPoint, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
+    func locked_drawPerRun(_ memberData: inout MemberData, coreText: ProtectedCoreText, runs: [TextRun], bounds: CGRect, contentInverse: CGPoint, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         let runPaths = coreText.perRunPaths(
-            fromRuns: memberData.runs,
+            fromRuns: runs,
             autosize: memberData.autosize,
             width: memberData.width
         )
 
         for runPath in runPaths {
-            let decorations = memberData.runs[runPath.runIndex].decorations ?? memberData.decorations
+            let decorations = runs[runPath.runIndex].decorations ?? memberData.decorations
             for decoration in decorations {
                 renderDecoration(decoration, path: runPath.path.cgPath, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
             }
@@ -462,7 +509,7 @@ private extension CanvasText {
         // Per-run path generation drops color glyphs the same way the uniform
         // path does. Catch them with the CoreText-native draw.
         coreText.drawColorGlyphs(
-            fromRuns: memberData.runs,
+            fromRuns: runs,
             autosize: memberData.autosize,
             width: memberData.width,
             bounds: bounds,
@@ -471,13 +518,13 @@ private extension CanvasText {
 
         // Draw text decoration lines per run
         let perRunDecorationPaths = coreText.perRunTextDecorationPaths(
-            fromRuns: memberData.runs,
+            fromRuns: runs,
             defaultLines: memberData.textDecorationLines,
             autosize: memberData.autosize,
             width: memberData.width
         )
         for runPath in perRunDecorationPaths {
-            let decorations = memberData.runs[runPath.runIndex].decorations ?? memberData.decorations
+            let decorations = runs[runPath.runIndex].decorations ?? memberData.decorations
             for decoration in decorations {
                 renderDecoration(decoration, path: runPath.path.cgPath, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
             }
@@ -490,23 +537,23 @@ private extension CanvasText {
     /// Decoration lines (underline/overline/line-through) continue to
     /// draw at the natural framesetter baseline — known Option A
     /// limitation when offsets steer glyphs away from that baseline.
-    func locked_drawPerGlyph(_ memberData: inout MemberData, bounds: CGRect, contentInverse: CGPoint, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
+    func locked_drawPerGlyph(_ memberData: inout MemberData, coreText: ProtectedCoreText, runs: [TextRun], bounds: CGRect, contentInverse: CGPoint, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         let runPaths = coreText.perGlyphPaths(
-            fromRuns: memberData.runs,
+            fromRuns: runs,
             autosize: memberData.autosize,
             width: memberData.width,
             bounds: bounds
         )
 
         for runPath in runPaths {
-            let decorations = memberData.runs[runPath.runIndex].decorations ?? memberData.decorations
+            let decorations = runs[runPath.runIndex].decorations ?? memberData.decorations
             for decoration in decorations {
                 renderDecoration(decoration, path: runPath.path.cgPath, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
             }
         }
 
         coreText.drawColorGlyphsPerGlyph(
-            fromRuns: memberData.runs,
+            fromRuns: runs,
             autosize: memberData.autosize,
             width: memberData.width,
             bounds: bounds,
@@ -516,13 +563,13 @@ private extension CanvasText {
         // Decoration lines: natural-baseline positions, ignoring
         // per-glyph offsets (Option A from the task plan).
         let perRunDecorationPaths = coreText.perRunTextDecorationPaths(
-            fromRuns: memberData.runs,
+            fromRuns: runs,
             defaultLines: memberData.textDecorationLines,
             autosize: memberData.autosize,
             width: memberData.width
         )
         for runPath in perRunDecorationPaths {
-            let decorations = memberData.runs[runPath.runIndex].decorations ?? memberData.decorations
+            let decorations = runs[runPath.runIndex].decorations ?? memberData.decorations
             for decoration in decorations {
                 renderDecoration(decoration, path: runPath.path.cgPath, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
             }
@@ -583,16 +630,22 @@ private extension CanvasText {
         )
     }
 
-    func locked_cgPath(_ memberData: inout MemberData) -> CGPath {
-        coreText.bezierPath(
-            fromRuns: memberData.runs,
-            autosize: memberData.autosize,
-            width: memberData.width
-        ).cgPath
+    /// CT glyph outline path for an arbitrary (coreText, runs) pair —
+    /// used by `locked_drawUniform` per-block. The layer-wide variant
+    /// (`locked_layerCGPath`) feeds layer-wide consumers like
+    /// `outlinePath`.
+    func locked_cgPath(coreText: ProtectedCoreText, runs: [TextRun], autosize: Bool, width: Double) -> CGPath {
+        coreText.bezierPath(fromRuns: runs, autosize: autosize, width: width).cgPath
+    }
+
+    /// Layer-wide CT glyph outline path over the flattened `runs` view —
+    /// approximate for multi-block layers. See `CanvasText.coreText`.
+    func locked_layerCGPath(_ memberData: inout MemberData) -> CGPath {
+        locked_cgPath(coreText: coreText, runs: memberData.runs, autosize: memberData.autosize, width: memberData.width)
     }
 
     func locked_outlinePath(_ memberData: inout MemberData) -> BezierPath {
-        let cgPath = locked_cgPath(&memberData)
+        let cgPath = locked_layerCGPath(&memberData)
         let bounds = locked_structureBounds(&memberData)
         // Same y-flip as setPath() — converts CoreText y-up to SVG y-down
         var flip = CGAffineTransform(translationX: 0, y: bounds.height)
@@ -611,13 +664,20 @@ private extension CanvasText {
 
         memberData.layer = .text(layer)
 
-        // Recompute effective transform when transform, baseline, or runs change
-        let runsChanged = memberData.runs != layer.runs
-        if memberData.baseline != layer.baseline || runsChanged {
+        // Recompute effective transform when transform, baseline, or blocks change
+        let blocksChanged = memberData.blocks != layer.blocks
+        if memberData.baseline != layer.baseline || blocksChanged {
             memberData.baseline = layer.baseline
         }
-        if runsChanged {
+        if blocksChanged {
+            memberData.blocks = layer.blocks
             memberData.runs = layer.runs
+            // Rebuild per-block CT array. Replacing wholesale drops any
+            // framesetter caches whose runs are unchanged across the update
+            // — that's a (small) perf hit on layer updates that's worth
+            // avoiding via diffing, but only once profiling shows it
+            // matters. Correctness first.
+            memberData.blockCoreTexts = layer.blocks.map { _ in ProtectedCoreText() }
             coreText.clear()
             didChange = true
         }

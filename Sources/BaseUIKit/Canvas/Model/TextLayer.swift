@@ -19,7 +19,11 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
     public let blendMode: BlendMode
     public let isVisible: Bool
     public let decorations: [Decoration]
-    public let runs: [TextRun]
+    /// Ordered list of positioning blocks. Each block renders with its
+    /// native pipeline (framesetter or per-glyph). For straight-baseline
+    /// text (the common case) this is a single `.framesetter` block;
+    /// `<textPath>` and per-character positioning produce mixed lists.
+    public let blocks: [TextBlock]
     public let shouldScaleWithZoom: Bool
     public let autosize: Bool
     public let width: Double
@@ -41,7 +45,7 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         blendMode: BlendMode,
         isVisible: Bool,
         decorations: [Decoration],
-        runs: [TextRun],
+        blocks: [TextBlock],
         shouldScaleWithZoom: Bool = true,
         autosize: Bool,
         width: Double,
@@ -60,7 +64,7 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         self.blendMode = blendMode
         self.isVisible = isVisible
         self.decorations = decorations
-        self.runs = runs
+        self.blocks = blocks
         self.shouldScaleWithZoom = shouldScaleWithZoom
         self.autosize = autosize
         self.width = width
@@ -70,5 +74,68 @@ public struct TextLayer<ID: Hashable & Sendable>: Hashable, Sendable, Identifiab
         self.mask = mask
         self.filter = filter
         self.hitPadding = hitPadding
+    }
+
+    /// Backward-compatible init that wraps a flat run list into a single
+    /// block. The block kind is auto-picked: any run with per-glyph data
+    /// produces a `.perGlyph` block, otherwise a `.framesetter` block at
+    /// anchor `.zero`. New callers that need block mixing construct
+    /// `blocks:` directly.
+    public init(
+        id: ID,
+        transform: Transform,
+        position: Vector,
+        screenOffset: Vector = .zero,
+        opacity: Double,
+        blendMode: BlendMode,
+        isVisible: Bool,
+        decorations: [Decoration],
+        runs: [TextRun],
+        shouldScaleWithZoom: Bool = true,
+        autosize: Bool,
+        width: Double,
+        baseline: TextBaseline = .alphabetic,
+        textDecorationLines: TextDecorationLine = [],
+        clipPath: ClipPath? = nil,
+        mask: MaskLayer? = nil,
+        filter: FilterLayer? = nil,
+        hitPadding: CGFloat = 0
+    ) {
+        let block: TextBlock =
+            runs.contains(where: \.needsPerGlyphRendering)
+            ? .perGlyph(runs: runs)
+            : .framesetter(runs: runs, anchor: .zero)
+        self.init(
+            id: id,
+            transform: transform,
+            position: position,
+            screenOffset: screenOffset,
+            opacity: opacity,
+            blendMode: blendMode,
+            isVisible: isVisible,
+            decorations: decorations,
+            blocks: [block],
+            shouldScaleWithZoom: shouldScaleWithZoom,
+            autosize: autosize,
+            width: width,
+            baseline: baseline,
+            textDecorationLines: textDecorationLines,
+            clipPath: clipPath,
+            mask: mask,
+            filter: filter,
+            hitPadding: hitPadding
+        )
+    }
+}
+
+public extension TextLayer {
+    /// Flat run list across all blocks. Convenient for readers (bounds,
+    /// debug overlays, hit-test glyph iteration) that don't need to know
+    /// which positioning block each run belongs to. For multi-block
+    /// layers, layer-wide CT queries built off this list treat the runs
+    /// as one continuous stream — that's correct for single-block layers
+    /// and an approximation for mixed ones.
+    var runs: [TextRun] {
+        blocks.flatMap(\.runs)
     }
 }
