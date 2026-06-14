@@ -395,20 +395,30 @@ private extension CanvasText {
 
         guard !memberData.runs.isEmpty else { return }
 
+        // The CTM at this point includes `LayerEffects.contentTransform`
+        // (position + baseline offset), which correctly places the glyph
+        // path but ALSO shifts paint coords — so a userSpaceOnUse
+        // gradient declared at user-space `(cx, cy)` would render at
+        // `(cx + x, cy + y + baselineOffset)` in parent space. We pass
+        // the inverse translate to the draw helpers so they can undo
+        // contentTransform around each `decoration.render` call: paths
+        // (already baked under the with-content CTM) stay where they
+        // are, while paints draw in pre-contentTransform user space.
+        let contentInverse = locked_contentInverseTranslate(&memberData)
+
         if memberData.runs.contains(where: \.needsPerGlyphRendering) {
-            locked_drawPerGlyph(&memberData, bounds: bounds, into: context, atScale: scale, renderingCache: renderingCache)
+            locked_drawPerGlyph(&memberData, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
         } else if memberData.runs.contains(where: \.needsPerRunRendering) {
-            locked_drawPerRun(&memberData, bounds: bounds, into: context, atScale: scale, renderingCache: renderingCache)
+            locked_drawPerRun(&memberData, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
         } else {
-            locked_drawUniform(&memberData, bounds: bounds, into: context, atScale: scale, renderingCache: renderingCache)
+            locked_drawUniform(&memberData, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
         }
     }
 
-    func locked_drawUniform(_ memberData: inout MemberData, bounds: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
+    func locked_drawUniform(_ memberData: inout MemberData, bounds: CGRect, contentInverse: CGPoint, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         let path = locked_cgPath(&memberData)
         for decoration in memberData.decorations {
-            setPath(path, with: bounds, in: context)
-            decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
+            renderDecoration(decoration, path: path, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
         }
 
         // Color-bitmap glyphs (emoji) don't have outlines, so they're absent
@@ -430,13 +440,12 @@ private extension CanvasText {
                 width: memberData.width
             )
             for decoration in memberData.decorations {
-                setPath(linePath.cgPath, with: bounds, in: context)
-                decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
+                renderDecoration(decoration, path: linePath.cgPath, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
             }
         }
     }
 
-    func locked_drawPerRun(_ memberData: inout MemberData, bounds: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
+    func locked_drawPerRun(_ memberData: inout MemberData, bounds: CGRect, contentInverse: CGPoint, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         let runPaths = coreText.perRunPaths(
             fromRuns: memberData.runs,
             autosize: memberData.autosize,
@@ -446,8 +455,7 @@ private extension CanvasText {
         for runPath in runPaths {
             let decorations = memberData.runs[runPath.runIndex].decorations ?? memberData.decorations
             for decoration in decorations {
-                setPath(runPath.path.cgPath, with: bounds, in: context)
-                decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
+                renderDecoration(decoration, path: runPath.path.cgPath, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
             }
         }
 
@@ -471,8 +479,7 @@ private extension CanvasText {
         for runPath in perRunDecorationPaths {
             let decorations = memberData.runs[runPath.runIndex].decorations ?? memberData.decorations
             for decoration in decorations {
-                setPath(runPath.path.cgPath, with: bounds, in: context)
-                decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
+                renderDecoration(decoration, path: runPath.path.cgPath, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
             }
         }
     }
@@ -483,7 +490,7 @@ private extension CanvasText {
     /// Decoration lines (underline/overline/line-through) continue to
     /// draw at the natural framesetter baseline — known Option A
     /// limitation when offsets steer glyphs away from that baseline.
-    func locked_drawPerGlyph(_ memberData: inout MemberData, bounds: CGRect, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
+    func locked_drawPerGlyph(_ memberData: inout MemberData, bounds: CGRect, contentInverse: CGPoint, into context: CGContext, atScale scale: CGFloat, renderingCache: RenderingCache?) {
         let runPaths = coreText.perGlyphPaths(
             fromRuns: memberData.runs,
             autosize: memberData.autosize,
@@ -494,8 +501,7 @@ private extension CanvasText {
         for runPath in runPaths {
             let decorations = memberData.runs[runPath.runIndex].decorations ?? memberData.decorations
             for decoration in decorations {
-                setPath(runPath.path.cgPath, with: bounds, in: context)
-                decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
+                renderDecoration(decoration, path: runPath.path.cgPath, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
             }
         }
 
@@ -518,10 +524,47 @@ private extension CanvasText {
         for runPath in perRunDecorationPaths {
             let decorations = memberData.runs[runPath.runIndex].decorations ?? memberData.decorations
             for decoration in decorations {
-                setPath(runPath.path.cgPath, with: bounds, in: context)
-                decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
+                renderDecoration(decoration, path: runPath.path.cgPath, bounds: bounds, contentInverse: contentInverse, into: context, atScale: scale, renderingCache: renderingCache)
             }
         }
+    }
+
+    /// Translate that, when concatenated to the CTM, cancels out the
+    /// `LayerEffects.contentTransform` (text `position` + baseline
+    /// offset). Lets paint draw in pre-contentTransform user space —
+    /// see `locked_drawSelf` for why.
+    func locked_contentInverseTranslate(_ memberData: inout MemberData) -> CGPoint {
+        let baselineFromTop = Double(coreText.baselineFromTopOfFrame(
+            fromRuns: memberData.runs, autosize: memberData.autosize, width: memberData.width))
+        let baselineOffset = Self.computeBaselineOffset(
+            memberData.baseline, runs: memberData.runs, baselineFromTop: baselineFromTop)
+        return CGPoint(
+            x: -memberData.position.dx,
+            y: -(memberData.position.dy + baselineOffset)
+        )
+    }
+
+    /// Bake `path` (in CT-y-up local coords) into the context's current
+    /// path under the with-content CTM, then concat the inverse content
+    /// translate before invoking `decoration.render` so paint coords
+    /// land in pre-contentTransform user space. The path itself is
+    /// stored at its post-CTM coords (CG resolves path coords at
+    /// addPath time), so the clip lands at the right glyph regardless
+    /// of the subsequent CTM change.
+    func renderDecoration(
+        _ decoration: Decoration,
+        path: CGPath,
+        bounds: CGRect,
+        contentInverse: CGPoint,
+        into context: CGContext,
+        atScale scale: CGFloat,
+        renderingCache: RenderingCache?
+    ) {
+        setPath(path, with: bounds, in: context)
+        context.saveGState()
+        context.translateBy(x: contentInverse.x, y: contentInverse.y)
+        decoration.render(into: context, atScale: scale, renderingCache: renderingCache)
+        context.restoreGState()
     }
 
     func locked_dyHeightExpansion(_ memberData: inout MemberData) -> CGFloat {
